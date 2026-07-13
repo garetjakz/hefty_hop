@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hefty Hop — Infinite Turf Run</title>
+<style>
+  html,body{margin:0;padding:0;background:#14051f;height:100%;overflow:hidden;
+            font-family:'Courier New',monospace;user-select:none;-webkit-user-select:none;touch-action:none}
+  #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  canvas{image-rendering:pixelated;image-rendering:crisp-edges;background:#1a0b2e;
+         max-width:100vw;max-height:78vh;border:4px solid #000;box-shadow:0 0 40px #9b59d288}
+  #pads{display:flex;justify-content:space-between;width:100%;max-width:960px;padding:10px 6px;box-sizing:border-box}
+  .pad{display:flex;gap:10px}
+  .btn{width:74px;height:74px;border-radius:14px;background:#3a2455;color:#ffc72c;border:3px solid #9b59d2;
+       font-size:26px;font-weight:bold;display:flex;align-items:center;justify-content:center;
+       -webkit-tap-highlight-color:transparent}
+  .btn:active{background:#9b59d2}
+  @media (min-width:900px) and (hover:hover){#pads{display:none}}
+  #gate{position:fixed;inset:0;background:#14051f;z-index:10;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:18px;text-align:center;padding:20px;
+        font-family:'Courier New',monospace;color:#c99df0}
+  #gate h1{color:#ffc72c;font-size:42px;margin:0;text-shadow:3px 3px 0 #9b59d2}
+  #gate p{max-width:560px;line-height:1.5;margin:0}
+  #gateBtn{background:#ffc72c;color:#14051f;border:none;padding:16px 38px;font-family:inherit;
+           font-size:22px;font-weight:bold;cursor:pointer;border-radius:8px;
+           box-shadow:0 0 24px #9b59d288}
+  #gateBtn:active{transform:translateY(2px)}
+  #gateStatus{color:#8affc1;min-height:24px;font-weight:bold}
+  #gate a{color:#8affc1}
+  #gate .small{color:#8a7aa0;font-size:13px}
+</style>
+</head>
+<body>
+<div id="gate">
+  <h1>HEFTY HOP</h1>
+  <p>Holders only — the Tie Club bouncer checks your wallet for a Hefty Hippo before you get in.</p>
+  <button id="gateBtn">CONNECT WALLET</button>
+  <div id="gateStatus"></div>
+  <p class="small" id="gateHint"></p>
+</div>
+<div id="wrap">
+  <canvas id="cv" width="960" height="540"></canvas>
+  <div id="pads">
+    <div class="pad"><div class="btn" id="bL">&#9664;</div><div class="btn" id="bR">&#9654;</div></div>
+    <div class="pad"><div class="btn" id="bF">FIRE</div><div class="btn" id="bB">BUMP</div><div class="btn" id="bJ">JUMP</div></div>
+  </div>
+</div>
+<script src="game_core.js"></script>
+<script>
+"use strict";
+const { C, TURFS, createRun, nextLevel, step } = window.GameCore;
+const PAL = [
+  { ground:'#7a2d16', inner:'#5a1e0e', top:'#e0642e', lip:'#ffc72c', plat:'#9b59d2', platHi:'#c99df0', platLo:'#5c2e85', stripe:'#ffc72c' },   // ember
+  { ground:'#7a1640', inner:'#5a0e2e', top:'#e62e78', lip:'#ffb3d1', plat:'#c9366e', platHi:'#f08cb4', platLo:'#851d47', stripe:'#ff8cc3' },   // heart
+  { ground:'#14525a', inner:'#0d3a40', top:'#2ea8b8', lip:'#d8b45a', plat:'#b8862e', platHi:'#e6c878', platLo:'#7a5a1e', stripe:'#5adbe6' },   // clockwork
+  { ground:'#2e5a1e', inner:'#1e400e', top:'#6ab83c', lip:'#e6e63c', plat:'#8a4b9e', platHi:'#c288d6', platLo:'#5a2e6e', stripe:'#a0e66e' },   // patchwork
+];
+function pal() { return PAL[(game.levelNum - 1) % 4]; }
+const BGS = ['hell','party','time','construction','coffee_warehouse','starry_night','lasers','surf_beach',
+             'spaceship','rainbow_jungle','money','sunrise','jail','heaven','sailing_ship','restaurant',
+             'bike_track','crocodile','sport','graduate','life_saver'];
+const bgCache = {};
+function bgImg(n) {
+  const slug = BGS[(n - 1) % BGS.length];
+  if (!bgCache[slug]) { const im = new Image(); im.src = 'assets/bg/' + slug + '.png'; bgCache[slug] = im; }
+  return bgCache[slug];
+}
+function levelName() { return TURFS[(game.levelNum - 1) % 4] + ' ' + Math.ceil(game.levelNum / 4) + '-' + (((game.levelNum - 1) % 4) + 1); }
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+/* assets */
+const IMG = {};
+const FILES = { heroIdle:'hero_idle.png', heroWalk:'hero_walk.png', heroJump:'hero_jump.png',
+                enIdle:'enemy_idle.png', enWalk:'enemy_walk.png', coin:'collectible_coin.png' };
+let loaded = 0, total = Object.keys(FILES).length;
+for (const k in FILES) { IMG[k] = new Image(); IMG[k].onload = () => loaded++; IMG[k].src = 'assets/' + FILES[k]; }
+
+/* input */
+const input = { left:false, right:false, jump:false, down:false, fire:false };
+const KEY = { ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right', D:'right',
+              ' ':'jump', w:'jump', W:'jump', ArrowUp:'jump', s:'down', S:'down', ArrowDown:'down',
+              x:'fire', X:'fire', k:'fire', K:'fire' };
+addEventListener('keydown', e => {
+  if (game.gameOver && hs.mode === 'entry') {
+    e.preventDefault();
+    const ch = e.key.toUpperCase();
+    if (ch.length === 1 && HS_CHARS.includes(ch)) {
+      hs.letters[hs.slot] = HS_CHARS.indexOf(ch);
+      hs.slot = Math.min(HS_LEN - 1, hs.slot + 1);
+    }
+    else if (e.key === 'ArrowUp') hs.letters[hs.slot] = (hs.letters[hs.slot] + 1) % HS_CHARS.length;
+    else if (e.key === 'ArrowDown') hs.letters[hs.slot] = (hs.letters[hs.slot] + HS_CHARS.length - 1) % HS_CHARS.length;
+    else if (e.key === 'ArrowRight') hs.slot = Math.min(HS_LEN - 1, hs.slot + 1);
+    else if (e.key === 'Backspace') { hs.letters[hs.slot] = HS_BLANK; hs.slot = Math.max(0, hs.slot - 1); hs.letters[hs.slot] = HS_BLANK; }
+    else if (e.key === 'ArrowLeft') hs.slot = Math.max(0, hs.slot - 1);
+    else if (e.key === 'Enter') hsSubmit();
+    return;
+  }
+  const k = KEY[e.key]; if (k) { input[k] = true; e.preventDefault(); }
+  if (e.key === 'r' || e.key === 'R') reset();
+  if (e.key === 'Enter' && game.won) advance();
+});
+addEventListener('keyup',   e => { const k = KEY[e.key]; if (k) input[k] = false; });
+function bindBtn(id, keys) {
+  const el = document.getElementById(id);
+  const on  = e => { e.preventDefault(); keys.forEach(k => input[k] = true); };
+  const off = e => { e.preventDefault(); keys.forEach(k => input[k] = false); };
+  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off);
+  el.addEventListener('pointerleave', off); el.addEventListener('pointercancel', off);
+}
+bindBtn('bL', ['left']); bindBtn('bR', ['right']); bindBtn('bJ', ['jump']); bindBtn('bB', ['down','jump']); bindBtn('bF', ['fire']);
+cv.addEventListener('pointerdown', ev => {
+  if (game.won) { advance(); return; }
+  if (!game.gameOver) return;
+  if (hs.mode === 'entry') {
+    const r = cv.getBoundingClientRect();
+    const x = (ev.clientX - r.left) * cv.width / r.width;
+    const y = (ev.clientY - r.top) * cv.height / r.height;
+    for (let i = 0; i < HS_LEN; i++) {
+      const bx = cv.width/2 - (HS_LEN*76)/2 + i*76;
+      if (x > bx && x < bx + 60 && y > 230 && y < 330) {
+        hs.slot = i;
+        hs.letters[i] = (hs.letters[i] + (y < 280 ? 1 : HS_CHARS.length - 1)) % HS_CHARS.length;
+        return;
+      }
+    }
+    if (x > cv.width/2 - 70 && x < cv.width/2 + 70 && y > 360 && y < 410) hsSubmit();
+    return;
+  }
+  reset();
+});
+
+/* high scores — classic 3-initial arcade table */
+const HS_KEY = 'heftyhop_scores';
+const HS_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';  // space = blank
+const HS_LEN = 8, HS_BLANK = HS_CHARS.length - 1;
+const HS_DEFAULT = [
+  { n:'HEFTYONE', s:10000, l:8 }, { n:'HIPPOPOT', s:8000, l:7 }, { n:'DOUG', s:6500, l:6 },
+  { n:'DEVIL666', s:5000, l:5 }, { n:'PLAINJAN', s:4000, l:4 }, { n:'BELLYBOP', s:3200, l:4 },
+  { n:'TIECLUB', s:2500, l:3 }, { n:'COCOACUP', s:1800, l:2 }, { n:'MELONHAT', s:1200, l:2 },
+  { n:'EGGNOSE', s:800,  l:1 },
+];
+const hs = { mode: null, letters: new Array(HS_LEN).fill(HS_BLANK), slot: 0, table: null, newIdx: -1 };
+function hsLoad() {
+  try { const t = JSON.parse(localStorage.getItem(HS_KEY));
+        if (Array.isArray(t) && t.length) return t; } catch (e) {}
+  return HS_DEFAULT.slice();
+}
+function hsSave(t) { try { localStorage.setItem(HS_KEY, JSON.stringify(t)); } catch (e) {} }
+function hsBegin() {
+  hs.table = hsLoad();
+  const qualifies = game.score > 0 &&
+    (hs.table.length < 10 || game.score > hs.table[hs.table.length - 1].s);
+  hs.letters = new Array(HS_LEN).fill(HS_BLANK); hs.slot = 0; hs.newIdx = -1;
+  hs.mode = qualifies ? 'entry' : 'table';
+}
+function hsSubmit() {
+  let name = hs.letters.map(i => HS_CHARS[i]).join('').replace(/\s+$/, '');
+  if (!name) name = 'HIPPO';
+  const entry = { n: name, s: game.score, l: game.levelNum };
+  hs.table.push(entry);
+  hs.table.sort((a, b) => b.s - a.s);
+  hs.table = hs.table.slice(0, 10);
+  hs.newIdx = hs.table.indexOf(entry);
+  hsSave(hs.table);
+  hs.mode = 'table';
+}
+
+/* game */
+let game = createRun((Date.now() & 0x7fffffff) || 1);
+function reset() { game = createRun((Date.now() & 0x7fffffff) || 1); hs.mode = null; }
+function advance() { game = nextLevel(game); }
+
+/* camera */
+let camX = 0;
+function cam() {
+  const target = game.player.x + game.player.w/2 - cv.width/2;
+  camX += (target - camX) * 0.12;
+  camX = Math.max(0, Math.min(camX, game.level.w * C.TILE - cv.width));
+}
+
+/* drawing helpers */
+function sheetFrame(img, frame, fw, dx, dy, dw, dh, flip) {
+  ctx.save();
+  if (flip) { ctx.translate(dx + dw/2, 0); ctx.scale(-1, 1); ctx.translate(-(dx + dw/2), 0); }
+  ctx.drawImage(img, frame * fw, 0, fw, img.height, dx, dy, dw, dh);
+  ctx.restore();
+}
+const T = C.TILE;
+function drawBG() {
+  const bg = bgImg(game.levelNum);
+  bgImg(game.levelNum + 1);                       // preload next level's art
+  if (bg.complete && bg.naturalWidth) {
+    // 1/1 collection background, slow parallax, tiled horizontally
+    const s = cv.height / bg.height, w = bg.width * s;
+    let off = -(camX * 0.2) % w; if (off > 0) off -= w;
+    for (let x = off; x < cv.width; x += w)
+      ctx.drawImage(bg, x, 0, w, cv.height);
+    ctx.fillStyle = 'rgba(10,5,20,0.34)';         // darken so sprites read
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, 0, cv.height);
+    grad.addColorStop(0, '#2b1050'); grad.addColorStop(0.6, '#5b1a5e'); grad.addColorStop(1, '#a03c28');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = pal().stripe;
+    const off = -(camX * 0.25) % 120;
+    ctx.translate(off, 0); ctx.rotate(-0.35);
+    for (let x = -400; x < cv.width + 600; x += 120) ctx.fillRect(x, -200, 55, cv.height + 500);
+    ctx.restore();
+  }
+}
+function drawTiles() {
+  const L = game.level;
+  const x0 = Math.floor(camX / T), x1 = Math.min(L.w - 1, Math.ceil((camX + cv.width) / T));
+  for (let y = 0; y < L.h; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const ch = L.grid[y][x], px = x*T - camX, py = y*T;
+      const P = pal();
+      if (ch === '#') {
+        const topOpen = y === 0 || L.grid[y-1][x] !== '#';
+        ctx.fillStyle = P.ground; ctx.fillRect(px, py, T, T);
+        ctx.fillStyle = P.inner; ctx.fillRect(px+3, py+6, T-6, T-6);
+        if (topOpen) { ctx.fillStyle = P.top; ctx.fillRect(px, py, T, 10);
+                       ctx.fillStyle = P.lip; ctx.fillRect(px, py, T, 3); }
+      } else if (ch === '=') {
+        ctx.fillStyle = P.plat; ctx.fillRect(px, py, T, 12);
+        ctx.fillStyle = P.platHi; ctx.fillRect(px, py, T, 4);
+        ctx.fillStyle = P.platLo; ctx.fillRect(px, py+12, T, 4);
+      }
+    }
+  }
+}
+function drawCages() {
+  for (const c of game.level.cages) {
+    const px = c.tx*T - camX, py = c.ty*T;
+    if (px < -T || px > cv.width) continue;
+    if (c.broken) {
+      ctx.fillStyle = '#c99df0'; ctx.font = 'bold 13px Courier New';
+      ctx.fillText('FREE!', px + 4, py + 14);
+      continue;
+    }
+    if (loaded === total) {
+      ctx.save(); ctx.globalAlpha = 0.95;
+      const f = Math.floor(performance.now()/500) % 2;
+      ctx.drawImage(IMG.heroIdle, f*420, 40, 420, 360, px+7, py+10, 34, 36);
+      ctx.restore();
+    }
+    ctx.strokeStyle = '#d8b45a'; ctx.lineWidth = 4;
+    ctx.strokeRect(px+3, py+3, T-6, T-6);
+    for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(px+3 + i*(T-6)/4, py+3); ctx.lineTo(px+3 + i*(T-6)/4, py+T-3); ctx.stroke(); }
+  }
+}
+function drawExit() {
+  const e = game.level.exit; if (!e) return;
+  const px = e.x - camX, py = e.doorY !== undefined ? e.doorY : e.y;
+  ctx.fillStyle = '#2b1050'; ctx.fillRect(px-6, py-14, T+12, T*2+14);
+  ctx.fillStyle = '#9b59d2'; ctx.fillRect(px, py, T, T*2);
+  ctx.fillStyle = '#ffc72c'; ctx.fillRect(px+T-14, py+T-4, 8, 8);
+  ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 12px Courier New';
+  ctx.fillText('TIE', px+11, py-22); ctx.fillText('CLUB', px+7, py-8);
+}
+function drawPins() {
+  if (loaded < total) return;
+  const f = Math.floor(performance.now()/110) % 4;
+  for (const p of game.level.pins) {
+    if (p.taken) continue;
+    const px = p.x - camX; if (px < -30 || px > cv.width+30) continue;
+    ctx.drawImage(IMG.coin, f*200, 0, 200, 200, px-14, p.y-14+Math.sin(performance.now()/300+p.x)*3, 28, 28);
+  }
+}
+function drawPowerups() {
+  for (const pu of game.level.powerups) {
+    if (pu.taken) continue;
+    const px = pu.x - camX; if (px < -40 || px > cv.width + 40) continue;
+    const bob = Math.sin(performance.now()/280 + pu.x) * 4;
+    const py = pu.y + bob;
+    if (pu.type === 'coffee') {
+      ctx.fillStyle = '#fff'; ctx.fillRect(px-11, py-8, 22, 18);       // mug
+      ctx.fillStyle = '#6b3a1e'; ctx.fillRect(px-8, py-5, 16, 6);      // coffee
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(px+14, py+1, 6, -1.2, 1.2); ctx.stroke();  // handle
+      ctx.strokeStyle = '#c9b8a8'; ctx.lineWidth = 2;                  // steam
+      const st = performance.now()/300;
+      ctx.beginPath(); ctx.moveTo(px-3, py-12); ctx.quadraticCurveTo(px-6+Math.sin(st)*3, py-18, px-3, py-24); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px+4, py-12); ctx.quadraticCurveTo(px+7+Math.cos(st)*3, py-18, px+4, py-24); ctx.stroke();
+    } else if (pu.type === 'hotchoc') {
+      ctx.fillStyle = '#8a4b2a'; ctx.fillRect(px-11, py-8, 22, 18);     // cocoa mug
+      ctx.fillStyle = '#5a2d14'; ctx.fillRect(px-8, py-5, 16, 6);
+      ctx.fillStyle = '#fff';                                            // marshmallows
+      ctx.fillRect(px-5, py-6, 5, 4); ctx.fillRect(px+2, py-5, 5, 4);
+      ctx.fillStyle = '#f7a8c3'; ctx.fillRect(px-1, py-7, 4, 3);
+      ctx.strokeStyle = '#8a4b2a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(px+14, py+1, 6, -1.2, 1.2); ctx.stroke();
+    } else if (pu.type === 'melon') {
+      ctx.fillStyle = '#2e8b3a';                                         // watermelon helmet
+      ctx.beginPath(); ctx.arc(px, py+4, 15, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#e6286e';
+      ctx.beginPath(); ctx.arc(px, py+4, 10, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#1c1c1c';
+      ctx.fillRect(px-5, py-2, 3, 3); ctx.fillRect(px+2, py-4, 3, 3);
+      ctx.fillStyle = '#a8e063'; ctx.fillRect(px-15, py+3, 30, 3);
+    } else {
+      ctx.fillStyle = '#d8b45a';                                        // token disc
+      ctx.beginPath(); ctx.arc(px, py, 14, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ff7a18';                                        // flame
+      const fl = 1 + Math.sin(performance.now()/120) * 0.15;
+      ctx.beginPath();
+      ctx.moveTo(px, py - 12*fl);
+      ctx.quadraticCurveTo(px+9, py-2, px, py+9);
+      ctx.quadraticCurveTo(px-9, py-2, px, py-12*fl);
+      ctx.fill();
+      ctx.fillStyle = '#ffd82e';
+      ctx.beginPath(); ctx.arc(px, py+2, 4, 0, 7); ctx.fill();
+    }
+  }
+}
+function drawShots() {
+  for (const s of game.shots) {
+    if (!s.alive) continue;
+    const px = s.x - camX; if (px < -20 || px > cv.width + 20) continue;
+    if (s.type === 'coffee') {
+      ctx.fillStyle = '#6b3a1e';
+      ctx.beginPath(); ctx.arc(px, s.y, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = '#a4713f';
+      ctx.beginPath(); ctx.arc(px - Math.sign(s.vx)*8, s.y - 2, 3, 0, 7); ctx.fill();
+    } else {
+      const fl = Math.floor(performance.now()/70) % 2;
+      ctx.fillStyle = fl ? '#ff7a18' : '#ffd82e';
+      ctx.beginPath(); ctx.arc(px, s.y, 8, 0, 7); ctx.fill();
+      ctx.fillStyle = fl ? '#ffd82e' : '#ff7a18';
+      ctx.beginPath(); ctx.arc(px, s.y, 4, 0, 7); ctx.fill();
+    }
+  }
+}
+function drawEnemies() {
+  for (const e of game.level.enemies) {
+    if (!e.alive) continue;
+    const px = e.x - camX; if (px < -100 || px > cv.width+100) continue;
+    const dw = 66, dh = 62, dx = px + e.w/2 - dw/2, dy = e.y + e.h - dh + 2;
+    if (loaded === total) {
+      if (Math.abs(e.vx) > 5) {
+        sheetFrame(IMG.enWalk, Math.floor(e.t*8) % 4, 420, dx, dy, dw, dh, e.vx < 0);
+      } else {
+        sheetFrame(IMG.enIdle, Math.floor(e.t*2) % 2, 420, dx, dy, dw, dh, false);
+      }
+    } else { ctx.fillStyle = '#e6286e'; ctx.fillRect(px, e.y, e.w, e.h); }
+  }
+}
+function drawPlayer() {
+  const p = game.player;
+  if (p.shield) {
+    ctx.strokeStyle = 'rgba(46,139,58,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x + p.w/2 - camX, p.y + p.h/2, 46 + Math.sin(performance.now()/200)*3, 0, 7);
+    ctx.stroke();
+  }
+  const ghost = p.inv > 0;
+  if (ghost) ctx.globalAlpha = 0.4 + 0.2 * Math.sin(performance.now() / 60);
+  const dw = 74, dh = 70;
+  const dx = p.x + p.w/2 - dw/2 - camX, dy = p.y + p.h - dh + 2;
+  if (loaded < total) { ctx.fillStyle = '#ffc72c'; ctx.fillRect(p.x-camX, p.y, p.w, p.h); return; }
+  if (!p.grounded) {
+    ctx.save();
+    if (p.bumping) { ctx.translate(dx+dw/2, dy+dh/2); ctx.rotate(p.facing*0.35); ctx.translate(-(dx+dw/2), -(dy+dh/2)); }
+    sheetFrame(IMG.heroJump, 0, 420, dx, dy, dw, dh, p.facing < 0);
+    ctx.restore();
+  } else if (Math.abs(p.vx) > 20) {
+    sheetFrame(IMG.heroWalk, Math.floor(p.animT*9) % 4, 420, dx, dy, dw, dh, p.facing < 0);
+  } else {
+    sheetFrame(IMG.heroIdle, Math.floor(p.animT*2) % 2, 420, dx, dy, dw, dh, p.facing < 0);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawHUD() {
+  ctx.fillStyle = 'rgba(20,5,31,0.65)'; ctx.fillRect(0, 0, cv.width, 34);
+  ctx.font = 'bold 18px Courier New'; ctx.fillStyle = '#ffc72c';
+  if (loaded === total) ctx.drawImage(IMG.coin, 0, 0, 200, 200, 10, 7, 20, 20);
+  ctx.fillText('x ' + game.pinsTotal, 36, 24);
+  ctx.fillText(String(game.score).padStart(6, '0'), 110, 24);
+  if (fx.livesFlash > 0 && Math.floor(performance.now()/120) % 2) ctx.fillStyle = '#ff4444';
+  ctx.font = fx.livesFlash > 0 ? 'bold 21px Courier New' : 'bold 18px Courier New';
+  ctx.fillText('LIVES x ' + Math.max(0, game.lives), 210, 24);
+  ctx.font = 'bold 18px Courier New'; ctx.fillStyle = '#ffc72c';
+  ctx.fillStyle = '#c99df0';
+  ctx.fillText('FREED x ' + game.rescued + '/' + game.level.cages.length, 380, 24);
+  if (game.player.shield) {
+    ctx.fillStyle = '#2e8b3a';
+    ctx.beginPath(); ctx.arc(510, 17, 9, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#e6286e';
+    ctx.beginPath(); ctx.arc(510, 17, 6, Math.PI, 0); ctx.fill();
+  }
+  if (game.player.weapon) {
+    ctx.fillStyle = game.player.weapon === 'coffee' ? '#c9a171' : '#ff9a3c';
+    ctx.fillText(game.player.weapon.toUpperCase() + ' x ' + game.player.ammo, 560, 24);
+  }
+  ctx.fillStyle = '#8affc1'; ctx.font = 'bold 14px Courier New';
+  const bgName = BGS[(game.levelNum - 1) % BGS.length].replace(/_/g, ' ').toUpperCase();
+  ctx.fillText(levelName() + ' · ' + bgName, cv.width - 330, 22);
+}
+function overlay(big, small) {
+  ctx.fillStyle = 'rgba(20,5,31,0.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 52px Courier New';
+  ctx.fillText(big, cv.width/2, cv.height/2 - 20);
+  ctx.fillStyle = '#c99df0'; ctx.font = 'bold 20px Courier New';
+  ctx.fillText(small, cv.width/2, cv.height/2 + 24);
+  ctx.textAlign = 'left';
+}
+
+
+/* retro SFX — tiny WebAudio synth driven by core events */
+let AC = null;
+function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+addEventListener('pointerdown', () => ac().resume(), { once: false });
+addEventListener('keydown', () => ac().resume(), { once: false });
+function beep(f0, f1, dur, type, vol) {
+  try {
+    const a = ac(), o = a.createOscillator(), g = a.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(f0, a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), a.currentTime + dur);
+    g.gain.setValueAtTime(vol || 0.08, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur);
+  } catch (e) {}
+}
+const SFX = {
+  jump:   () => beep(300, 620, 0.14),
+  bump:   () => beep(500, 120, 0.18, 'sawtooth'),
+  bumpland:() => beep(140, 60, 0.2, 'sawtooth', 0.1),
+  stomp:  () => beep(220, 80, 0.12, 'triangle', 0.1),
+  pin:    () => beep(920, 1400, 0.09, 'square', 0.06),
+  '1up':  () => { beep(520, 1040, 0.3); setTimeout(() => beep(660, 1320, 0.3), 120); },
+  hurt:   () => beep(200, 90, 0.25, 'sawtooth', 0.1),
+  rescue: () => { beep(660, 990, 0.15); setTimeout(() => beep(880, 1320, 0.2), 100); },
+  checkpoint:() => beep(440, 880, 0.2, 'triangle'),
+  win:    () => { [440, 554, 659, 880].forEach((f, i) => setTimeout(() => beep(f, f, 0.22), i * 130)); },
+  'shoot:coffee': () => beep(950, 350, 0.08, 'square', 0.07),
+  'shoot:fire':   () => beep(260, 90, 0.2, 'sawtooth', 0.09),
+  firebounce:     () => beep(180, 320, 0.06, 'triangle', 0.05),
+  shotkill:       () => beep(320, 110, 0.14, 'triangle', 0.09),
+  'power:coffee': () => { beep(660, 990, 0.12); setTimeout(() => beep(990, 1320, 0.15), 90); },
+  'power:fire':   () => { beep(330, 660, 0.12, 'sawtooth'); setTimeout(() => beep(440, 880, 0.15, 'sawtooth'), 90); },
+  'power:out':    () => beep(300, 150, 0.2, 'triangle', 0.06),
+  'power:hotchoc':() => { beep(440, 660, 0.15, 'sine', 0.1); setTimeout(() => beep(660, 880, 0.25, 'sine', 0.1), 120); },
+  'power:melon':  () => beep(220, 440, 0.18, 'triangle', 0.1),
+  shieldbreak:    () => beep(500, 100, 0.3, 'sawtooth', 0.1),
+  'die:pit':  () => beep(400, 60, 0.5, 'sawtooth', 0.1),
+  'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
+};
+
+function drawHiscores() {
+  ctx.fillStyle = 'rgba(10,4,18,0.92)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e6286e'; ctx.font = 'bold 44px Courier New';
+  ctx.fillText('GAME OVER', cv.width/2, 78);
+  ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 20px Courier New';
+  ctx.fillText('SCORE ' + String(game.score).padStart(6,'0') + '   LEVEL ' + game.levelNum, cv.width/2, 112);
+  const blink = Math.floor(performance.now()/400) % 2;
+  if (hs.mode === 'entry') {
+    ctx.fillStyle = '#8affc1'; ctx.font = 'bold 26px Courier New';
+    ctx.fillText('NEW HIGH SCORE — ENTER YOUR INITIALS', cv.width/2, 180);
+    for (let i = 0; i < HS_LEN; i++) {
+      const bx = cv.width/2 - (HS_LEN*76)/2 + i*76;
+      ctx.fillStyle = i === hs.slot && blink ? '#3a2455' : '#241536';
+      ctx.fillRect(bx, 230, 60, 100);
+      ctx.strokeStyle = i === hs.slot ? '#ffc72c' : '#9b59d2'; ctx.lineWidth = 3;
+      ctx.strokeRect(bx, 230, 60, 100);
+      const c = HS_CHARS[hs.letters[i]];
+      ctx.fillStyle = c === ' ' ? '#4a3a5e' : '#fff'; ctx.font = 'bold 44px Courier New';
+      ctx.fillText(c === ' ' ? '·' : c, bx + 30, 296);
+      ctx.fillStyle = '#9b59d2'; ctx.font = 'bold 16px Courier New';
+      ctx.fillText('▲', bx + 30, 224); ctx.fillText('▼', bx + 30, 350);
+    }
+    ctx.fillStyle = '#ffc72c'; ctx.fillRect(cv.width/2 - 70, 368, 140, 40);
+    ctx.fillStyle = '#14051f'; ctx.font = 'bold 24px Courier New';
+    ctx.fillText('OK', cv.width/2, 396);
+    ctx.fillStyle = '#8a7aa0'; ctx.font = '14px Courier New';
+    ctx.fillText('type your name (8 letters max), Enter or OK to confirm', cv.width/2, 440);
+  } else {
+    ctx.fillStyle = '#8affc1'; ctx.font = 'bold 24px Courier New';
+    ctx.fillText('★ HALL OF HEFTY ★', cv.width/2, 160);
+    ctx.font = 'bold 20px Courier New';
+    for (let i = 0; i < hs.table.length; i++) {
+      const e = hs.table[i];
+      const y = 196 + i * 27;
+      const isNew = i === hs.newIdx;
+      ctx.fillStyle = isNew ? (blink ? '#ffc72c' : '#fff') : (i % 2 ? '#c99df0' : '#9b59d2');
+      const rank = String(i + 1).padStart(2, ' ');
+      const score = String(e.s).padStart(7, ' ');
+      ctx.fillText(rank + '.  ' + (e.n + '        ').slice(0, 8) + '  ' + score + '  L' + e.l, cv.width/2, y);
+    }
+    if (blink) {
+      ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 18px Courier New';
+      ctx.fillText('TAP OR PRESS R FOR NEW RUN', cv.width/2, 500);
+    }
+  }
+  ctx.textAlign = 'left';
+}
+
+/* feedback fx: death flash, popups, lives pulse */
+const fx = { flash: 0, livesFlash: 0, pop: null };
+function fxEvent(ev) {
+  if (ev.startsWith('die:')) { fx.flash = 0.5; fx.livesFlash = 1.2; fx.pop = { text: '-1 LIFE', t: 1.1, color: '#ff4444' }; }
+  else if (ev === 'shieldbreak') fx.pop = { text: 'SHIELD SAVED YOU!', t: 1.1, color: '#8affc1' };
+  else if (ev === 'power:hotchoc' || ev === '1up') { fx.livesFlash = 1.2; fx.pop = { text: '+1 LIFE!', t: 1.1, color: '#8affc1' }; }
+}
+function drawFx() {
+  if (fx.flash > 0) {
+    ctx.fillStyle = 'rgba(220,30,30,' + (fx.flash * 0.55).toFixed(3) + ')';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  }
+  if (fx.pop && fx.pop.t > 0) {
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = Math.min(1, fx.pop.t);
+    ctx.fillStyle = fx.pop.color; ctx.font = 'bold 40px Courier New';
+    ctx.fillText(fx.pop.text, cv.width / 2, 200 - (1.1 - fx.pop.t) * 40);
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  }
+}
+
+/* ---- holder gate ---------------------------------------------------- */
+const HIPPOS_CONTRACT = '0xad6f05210ff9cf36e777adb0433693eb14c8979f';
+const OPENSEA = 'https://opensea.io/collection/hefty-hippos-genesis';
+const GATE_ON = location.protocol !== 'file:';   // open locally, gated when hosted
+const gateEl = document.getElementById('gate');
+const gateBtn = document.getElementById('gateBtn');
+const gateStatus = document.getElementById('gateStatus');
+const gateHint = document.getElementById('gateHint');
+let gameStarted = false;
+
+function gatePass() {
+  if (gateEl) gateEl.style.display = 'none';
+  if (!gameStarted) { gameStarted = true; requestAnimationFrame(frame); }
+}
+async function gateCheck() {
+  try {
+    if (!window.ethereum) {
+      gateStatus.textContent = 'NO WALLET FOUND';
+      gateHint.innerHTML = 'Install <a href="https://metamask.io" target="_blank">MetaMask</a> — or on mobile, open this page inside your wallet app\'s browser.';
+      return;
+    }
+    gateStatus.textContent = 'CONNECTING...';
+    const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const chain = await window.ethereum.request({ method: 'eth_chainId' });
+    if (chain !== '0x1') {
+      gateStatus.textContent = 'SWITCHING TO ETHEREUM...';
+      try { await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] }); }
+      catch (e) { gateStatus.textContent = 'PLEASE SWITCH YOUR WALLET TO ETHEREUM MAINNET'; return; }
+    }
+    gateStatus.textContent = 'ASKING THE BOUNCER...';
+    const data = '0x70a08231' + addr.slice(2).toLowerCase().padStart(64, '0');
+    const res = await window.ethereum.request({
+      method: 'eth_call', params: [{ to: HIPPOS_CONTRACT, data }, 'latest'] });
+    const count = parseInt(res, 16) || 0;
+    if (count > 0) {
+      gateStatus.textContent = 'WELCOME BACK — ' + count + ' HIPPO' + (count > 1 ? 'S' : '') + ' VERIFIED';
+      setTimeout(gatePass, 900);
+    } else {
+      gateStatus.textContent = 'NO HIPPO, NO ENTRY';
+      gateHint.innerHTML = 'The bouncer doesn\'t negotiate. <a href="' + OPENSEA + '" target="_blank">Adopt a Hefty Hippo on OpenSea</a> and come back.';
+    }
+  } catch (e) {
+    gateStatus.textContent = 'CONNECTION CANCELLED — TRY AGAIN';
+  }
+}
+if (GATE_ON) {
+  gateBtn.addEventListener('click', gateCheck);
+  if (window.ethereum) window.ethereum.on && window.ethereum.on('accountsChanged', () => location.reload());
+} else {
+  gatePass();   // local/dev play
+}
+
+/* main loop — fixed timestep */
+let last = performance.now(), acc = 0;
+const DT = 1/60;
+function frame(now) {
+  acc += Math.min(0.1, (now - last)/1000); last = now;
+  while (acc >= DT) {
+    step(game, input, DT);
+    for (const ev of game.events) { const f = SFX[ev]; if (f) f(); fxEvent(ev); }
+    fx.flash = Math.max(0, fx.flash - DT);
+    fx.livesFlash = Math.max(0, fx.livesFlash - DT);
+    if (fx.pop) { fx.pop.t -= DT; if (fx.pop.t <= 0) fx.pop = null; }
+    acc -= DT;
+  }
+  cam();
+  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawEnemies(); drawShots(); drawPlayer(); drawHUD(); drawFx();
+  if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
+  else if (game.gameOver) {
+    if (hs.mode === null) hsBegin();
+    drawHiscores();
+  }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
