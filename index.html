@@ -198,15 +198,28 @@ function sheetFrame(img, frame, fw, dx, dy, dw, dh, flip) {
   ctx.restore();
 }
 const T = C.TILE;
+function drawBGTiled(bg, scroll) {
+  // mirror-tiling: odd tiles are flipped so edges always meet their own
+  // reflection — seamless scroll from non-tileable art
+  const s = cv.height / bg.height, w = bg.width * s;
+  const k0 = Math.floor(scroll / w);
+  for (let k = k0; k * w - scroll < cv.width; k++) {
+    const px = k * w - scroll;
+    if (((k % 2) + 2) % 2 === 1) {
+      ctx.save();
+      ctx.translate(px + w / 2, 0); ctx.scale(-1, 1); ctx.translate(-(px + w / 2), 0);
+      ctx.drawImage(bg, px, 0, w, cv.height);
+      ctx.restore();
+    } else {
+      ctx.drawImage(bg, px, 0, w, cv.height);
+    }
+  }
+}
 function drawBG() {
   const bg = bgImg(game.levelNum);
   bgImg(game.levelNum + 1);                       // preload next level's art
   if (bg.complete && bg.naturalWidth) {
-    // 1/1 collection background, slow parallax, tiled horizontally
-    const s = cv.height / bg.height, w = bg.width * s;
-    let off = -(camX * 0.2) % w; if (off > 0) off -= w;
-    for (let x = off; x < cv.width; x += w)
-      ctx.drawImage(bg, x, 0, w, cv.height);
+    drawBGTiled(bg, camX * 0.2);
     ctx.fillStyle = 'rgba(10,5,20,0.34)';         // darken so sprites read
     ctx.fillRect(0, 0, cv.width, cv.height);
   } else {
@@ -430,7 +443,8 @@ function beep(f0, f1, dur, type, vol) {
     o.type = type || 'square';
     o.frequency.setValueAtTime(f0, a.currentTime);
     o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), a.currentTime + dur);
-    g.gain.setValueAtTime(vol || 0.08, a.currentTime);
+    g.gain.setValueAtTime(0.0001, a.currentTime);
+    g.gain.linearRampToValueAtTime(vol || 0.08, a.currentTime + 0.004);
     g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
     o.connect(g); g.connect(a.destination);
     o.start(); o.stop(a.currentTime + dur);
@@ -484,7 +498,8 @@ function mBus() {
 function mTone(t, freq, dur, type, vol) {
   const a = ac(), o = a.createOscillator(), g = a.createGain();
   o.type = type; o.frequency.setValueAtTime(freq, t);
-  g.gain.setValueAtTime(vol, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.004);
   g.gain.exponentialRampToValueAtTime(0.001, t + dur);
   o.connect(g); g.connect(mBus());
   o.start(t); o.stop(t + dur + 0.02);
@@ -493,14 +508,18 @@ function mKick(t) {
   const a = ac(), o = a.createOscillator(), g = a.createGain();
   o.type = 'sine';
   o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.1);
-  g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.5, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
   o.connect(g); g.connect(mBus()); o.start(t); o.stop(t + 0.14);
 }
 function mNoise(t, dur, vol, hp) {
   const a = ac(), s = a.createBufferSource(); s.buffer = MUSIC.noiseBuf;
   const g = a.createGain(), fl = a.createBiquadFilter();
   fl.type = 'highpass'; fl.frequency.value = hp;
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(mBus()); s.start(t); s.stop(t + dur + 0.02);
 }
 function mStep(step, t) {
@@ -661,9 +680,7 @@ function drawTitle(dt) {
   const bgN = 1 + Math.floor(titleT / 8) % 21;
   const bg = bgImg(bgN); bgImg(bgN + 1);
   if (bg.complete && bg.naturalWidth) {
-    const s = cv.height / bg.height, w = bg.width * s;
-    let off = -(titleT * 18) % w; if (off > 0) off -= w;
-    for (let x = off; x < cv.width; x += w) ctx.drawImage(bg, x, 0, w, cv.height);
+    drawBGTiled(bg, titleT * 18);
     ctx.fillStyle = 'rgba(10,4,18,0.62)'; ctx.fillRect(0, 0, cv.width, cv.height);
   } else { ctx.fillStyle = '#14051f'; ctx.fillRect(0, 0, cv.width, cv.height); }
 
