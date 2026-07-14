@@ -487,7 +487,12 @@ function mFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
 function mBus() {
   if (!MUSIC.bus) {
     const a = ac();
-    MUSIC.bus = a.createGain(); MUSIC.bus.gain.value = 0.15; MUSIC.bus.connect(a.destination);
+    MUSIC.bus = a.createGain(); MUSIC.bus.gain.value = 0.17;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500; lp.Q.value = 0.5;
+    const comp = a.createDynamicsCompressor();
+    comp.threshold.value = -22; comp.knee.value = 18; comp.ratio.value = 5;
+    comp.attack.value = 0.004; comp.release.value = 0.12;
+    MUSIC.bus.connect(lp); lp.connect(comp); comp.connect(a.destination);
     const len = Math.floor(a.sampleRate * 0.5), buf = a.createBuffer(1, len, a.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -495,22 +500,29 @@ function mBus() {
   }
   return MUSIC.bus;
 }
-function mTone(t, freq, dur, type, vol) {
+function mTone(t, freq, dur, type, vol, cutoff) {
   const a = ac(), o = a.createOscillator(), g = a.createGain();
   o.type = type; o.frequency.setValueAtTime(freq, t);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(vol, t + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g); g.connect(mBus());
-  o.start(t); o.stop(t + dur + 0.02);
+  g.gain.linearRampToValueAtTime(vol, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.002, t + dur);
+  g.gain.linearRampToValueAtTime(0, t + dur + 0.015);
+  o.connect(g);
+  if (cutoff) {
+    const fl = a.createBiquadFilter();
+    fl.type = 'lowpass'; fl.frequency.value = cutoff; fl.Q.value = 0.7;
+    g.connect(fl); fl.connect(mBus());
+  } else g.connect(mBus());
+  o.start(t); o.stop(t + dur + 0.03);
 }
 function mKick(t) {
   const a = ac(), o = a.createOscillator(), g = a.createGain();
   o.type = 'sine';
   o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.1);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(0.5, t + 0.003);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  g.gain.linearRampToValueAtTime(0.4, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.002, t + 0.11);
+  g.gain.linearRampToValueAtTime(0, t + 0.13);
   o.connect(g); g.connect(mBus()); o.start(t); o.stop(t + 0.14);
 }
 function mNoise(t, dur, vol, hp) {
@@ -519,7 +531,8 @@ function mNoise(t, dur, vol, hp) {
   fl.type = 'highpass'; fl.frequency.value = hp;
   g.gain.setValueAtTime(0.0001, t);
   g.gain.linearRampToValueAtTime(vol, t + 0.006);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  g.gain.exponentialRampToValueAtTime(0.002, t + dur);
+  g.gain.linearRampToValueAtTime(0, t + dur + 0.015);
   s.connect(fl); fl.connect(g); g.connect(mBus()); s.start(t); s.stop(t + dur + 0.02);
 }
 function mStep(step, t) {
@@ -529,11 +542,11 @@ function mStep(step, t) {
   if (s16 === 4 || s16 === 12) mNoise(t, 0.09, 0.22, 1800);      // snare
   if (s16 % 4 === 2) mNoise(t, 0.055, 0.055, 4500);              // offbeat hat
   if (s16 % 2 === 0)                                             // driving 8th bass
-    mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'square', 0.10);
+    mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'sawtooth', 0.16, 900);
   if (s16 % 2 === 1)                                             // arp sparkle
-    mTone(t, mFreq(root + chord[step % 3] + 12), 0.06, 'triangle', 0.045);
+    mTone(t, mFreq(root + chord[step % 3] + 12), 0.06, 'triangle', 0.05);
   const off = ((bar % 2) ? M_LEAD_B : M_LEAD_A)[s16];            // lead hook
-  if (off !== null) mTone(t, mFreq(root + off + 12), 0.12, 'square', 0.06);
+  if (off !== null) mTone(t, mFreq(root + off + 12), 0.12, 'square', 0.07, 2800);
 }
 function musicUpdate(active) {
   try {
