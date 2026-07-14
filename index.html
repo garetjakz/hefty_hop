@@ -701,7 +701,9 @@ async function gateCheck() {
   }
 }
 /* ---- play-as-your-hippo: in-browser sprite pipeline ------------------ */
-const HIPPO_IMG_URL = n => 'https://da1ezqlaxtxtv.cloudfront.net/images/' + n + '.png';
+const HIPPO_IMG_URL = n => location.protocol === 'file:'
+  ? 'https://da1ezqlaxtxtv.cloudfront.net/images/' + n + '.png'
+  : '/hippo/' + n;   // same-origin Pages Function proxy — no CORS needed
 let gateAddr = null;
 const selEl = document.getElementById('hippoSel');
 const selNum = document.getElementById('hippoNum');
