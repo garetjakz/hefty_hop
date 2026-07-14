@@ -83,6 +83,7 @@ const KEY = { ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right
               ' ':'jump', w:'jump', W:'jump', ArrowUp:'jump', s:'down', S:'down', ArrowDown:'down',
               x:'fire', X:'fire', k:'fire', K:'fire' };
 addEventListener('keydown', e => {
+  if ((e.key === 'm' || e.key === 'M') && !(game.gameOver && hs.mode === 'entry')) { MUSIC.on = !MUSIC.on; return; }
   if (appMode === 'title') {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startGame(); }
     return;
@@ -460,6 +461,74 @@ const SFX = {
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
 };
 
+/* ---- chiptune music: live-synth 80s driver, no audio files ---------- */
+const MUSIC = { on: true, step: 0, nextT: 0, key: 0, noiseBuf: null, bus: null };
+const M_BPM = 132, M_16TH = 60 / M_BPM / 4;
+const M_ROOTS  = [60, 55, 57, 53];                    // C  G  Am F
+const M_CHORDS = [[0,4,7], [0,4,7], [0,3,7], [0,4,7]]; // triad shapes per bar
+const M_KEYS   = [0, 2, -3, 5];                        // transpose per turf
+const M_LEAD_A = [12,null,7,null,16,null,12,null,7,null,16,null,12,14,16,null];
+const M_LEAD_B = [19,null,16,null,12,null,16,null,19,17,16,14,12,null,7,null];
+function mFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function mBus() {
+  if (!MUSIC.bus) {
+    const a = ac();
+    MUSIC.bus = a.createGain(); MUSIC.bus.gain.value = 0.15; MUSIC.bus.connect(a.destination);
+    const len = Math.floor(a.sampleRate * 0.5), buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    MUSIC.noiseBuf = buf;
+  }
+  return MUSIC.bus;
+}
+function mTone(t, freq, dur, type, vol) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(mBus());
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function mKick(t) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.1);
+  g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  o.connect(g); g.connect(mBus()); o.start(t); o.stop(t + 0.14);
+}
+function mNoise(t, dur, vol, hp) {
+  const a = ac(), s = a.createBufferSource(); s.buffer = MUSIC.noiseBuf;
+  const g = a.createGain(), fl = a.createBiquadFilter();
+  fl.type = 'highpass'; fl.frequency.value = hp;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(mBus()); s.start(t); s.stop(t + dur + 0.02);
+}
+function mStep(step, t) {
+  const bar = (step >> 4) % 4, s16 = step % 16, key = M_KEYS[MUSIC.key];
+  const root = M_ROOTS[bar] + key, chord = M_CHORDS[bar];
+  if (s16 % 4 === 0) mKick(t);                                   // four on the floor
+  if (s16 === 4 || s16 === 12) mNoise(t, 0.09, 0.22, 1800);      // snare
+  if (s16 % 4 === 2) mNoise(t, 0.03, 0.10, 6000);                // offbeat hat
+  if (s16 % 2 === 0)                                             // driving 8th bass
+    mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'square', 0.10);
+  if (s16 % 2 === 1)                                             // arp sparkle
+    mTone(t, mFreq(root + chord[step % 3] + 12), 0.06, 'triangle', 0.045);
+  const off = ((bar % 2) ? M_LEAD_B : M_LEAD_A)[s16];            // lead hook
+  if (off !== null) mTone(t, mFreq(root + off + 12), 0.12, 'square', 0.06);
+}
+function musicUpdate(active) {
+  try {
+    if (!MUSIC.on || !active || !AC || AC.state !== 'running') return;
+    mBus();
+    if (MUSIC.nextT < AC.currentTime - 0.2) MUSIC.nextT = AC.currentTime + 0.05;
+    while (MUSIC.nextT < AC.currentTime + 0.15) {
+      mStep(MUSIC.step, MUSIC.nextT);
+      MUSIC.step = (MUSIC.step + 1) % 64;
+      MUSIC.nextT += M_16TH;
+    }
+  } catch (e) {}
+}
+
 function drawHiscores() {
   ctx.fillStyle = 'rgba(10,4,18,0.92)'; ctx.fillRect(0, 0, cv.width, cv.height);
   ctx.textAlign = 'center';
@@ -628,7 +697,7 @@ function drawTitle(dt) {
     ctx.strokeRect(cv.width/2 - 330, 320, 660, 130);
     ctx.fillStyle = '#c99df0'; ctx.font = 'bold 16px Courier New';
     ctx.fillText('ARROWS / WASD  MOVE      SPACE  JUMP (HOLD = HIGHER)', cv.width/2, 348);
-    ctx.fillText('DOWN + JUMP  BELLY BUMP      X / K  FIRE      R  RESTART', cv.width/2, 372);
+    ctx.fillText('DOWN + JUMP  BELLY BUMP    X / K  FIRE    R  RESTART    M  MUSIC', cv.width/2, 372);
     ctx.fillStyle = '#8a7aa0';
     ctx.fillText('TOUCH: D-PAD · JUMP · BUMP · FIRE BUTTONS', cv.width/2, 396);
     ctx.fillStyle = '#ffc72c';
@@ -661,6 +730,7 @@ const DT = 1/60;
 function frame(now) {
   if (appMode === 'title') {
     const dt = Math.min(0.1, (now - last)/1000); last = now;
+    MUSIC.key = 0; musicUpdate(true);
     drawTitle(dt);
     requestAnimationFrame(frame);
     return;
@@ -674,6 +744,8 @@ function frame(now) {
     if (fx.pop) { fx.pop.t -= DT; if (fx.pop.t <= 0) fx.pop = null; }
     acc -= DT;
   }
+  MUSIC.key = (game.levelNum - 1) % 4;
+  musicUpdate(!game.gameOver);
   cam();
   drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawEnemies(); drawShots(); drawPlayer(); drawHUD(); drawFx();
   if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
