@@ -83,6 +83,10 @@ const KEY = { ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right
               ' ':'jump', w:'jump', W:'jump', ArrowUp:'jump', s:'down', S:'down', ArrowDown:'down',
               x:'fire', X:'fire', k:'fire', K:'fire' };
 addEventListener('keydown', e => {
+  if (appMode === 'title') {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startGame(); }
+    return;
+  }
   if (game.gameOver && hs.mode === 'entry') {
     e.preventDefault();
     const ch = e.key.toUpperCase();
@@ -99,7 +103,10 @@ addEventListener('keydown', e => {
     return;
   }
   const k = KEY[e.key]; if (k) { input[k] = true; e.preventDefault(); }
-  if (e.key === 'r' || e.key === 'R') reset();
+  if (e.key === 'r' || e.key === 'R') {
+    if (game.gameOver && hs.mode === 'table') { attractTable = null; titleT = 0; appMode = 'title'; hs.mode = null; }
+    else reset();
+  }
   if (e.key === 'Enter' && game.won) advance();
 });
 addEventListener('keyup',   e => { const k = KEY[e.key]; if (k) input[k] = false; });
@@ -112,6 +119,7 @@ function bindBtn(id, keys) {
 }
 bindBtn('bL', ['left']); bindBtn('bR', ['right']); bindBtn('bJ', ['jump']); bindBtn('bB', ['down','jump']); bindBtn('bF', ['fire']);
 cv.addEventListener('pointerdown', ev => {
+  if (appMode === 'title') { startGame(); return; }
   if (game.won) { advance(); return; }
   if (!game.gameOver) return;
   if (hs.mode === 'entry') {
@@ -129,7 +137,7 @@ cv.addEventListener('pointerdown', ev => {
     if (x > cv.width/2 - 70 && x < cv.width/2 + 70 && y > 360 && y < 410) hsSubmit();
     return;
   }
-  reset();
+  attractTable = null; titleT = 0; appMode = 'title'; hs.mode = null;
 });
 
 /* high scores — classic 3-initial arcade table */
@@ -495,7 +503,7 @@ function drawHiscores() {
     }
     if (blink) {
       ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 18px Courier New';
-      ctx.fillText('TAP OR PRESS R FOR NEW RUN', cv.width/2, 500);
+      ctx.fillText('TAP OR PRESS R FOR TITLE SCREEN', cv.width/2, 500);
     }
   }
   ctx.textAlign = 'left';
@@ -574,10 +582,89 @@ if (GATE_ON) {
   gatePass();   // local/dev play
 }
 
+/* ---- title / attract screen ---------------------------------------- */
+let appMode = 'title';
+let titleT = 0, attractTable = null;
+function startGame() { reset(); appMode = 'game'; }
+function drawTitle(dt) {
+  titleT += dt;
+  // slow-panning 1/1 background carousel
+  const bgN = 1 + Math.floor(titleT / 8) % 21;
+  const bg = bgImg(bgN); bgImg(bgN + 1);
+  if (bg.complete && bg.naturalWidth) {
+    const s = cv.height / bg.height, w = bg.width * s;
+    let off = -(titleT * 18) % w; if (off > 0) off -= w;
+    for (let x = off; x < cv.width; x += w) ctx.drawImage(bg, x, 0, w, cv.height);
+    ctx.fillStyle = 'rgba(10,4,18,0.62)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  } else { ctx.fillStyle = '#14051f'; ctx.fillRect(0, 0, cv.width, cv.height); }
+
+  const blink = Math.floor(performance.now() / 450) % 2;
+  ctx.textAlign = 'center';
+
+  const phase = titleT % 14;
+  if (phase < 9) {
+    // logo
+    const bob = Math.sin(performance.now() / 400) * 6;
+    ctx.fillStyle = '#9b59d2'; ctx.font = 'bold 84px Courier New';
+    ctx.fillText('HEFTY HOP', cv.width/2 + 5, 128 + bob + 5);
+    ctx.fillStyle = '#ffc72c';
+    ctx.fillText('HEFTY HOP', cv.width/2, 128 + bob);
+    ctx.fillStyle = '#8affc1'; ctx.font = 'bold 18px Courier New';
+    ctx.fillText('AN 80s TIE CLUB ARCADE — HOLDERS ONLY', cv.width/2, 162 + bob);
+
+    // sprites parade
+    if (loaded === total) {
+      const wf = Math.floor(performance.now()/120) % 4;
+      sheetFrame(IMG.heroWalk, wf, 420, cv.width/2 - 210, 190, 118, 112, false);
+      sheetFrame(IMG.enWalk, wf, 420, cv.width/2 + 100, 196, 106, 100, true);
+      const cf = Math.floor(performance.now()/110) % 4;
+      ctx.drawImage(IMG.coin, cf*200, 0, 200, 200, cv.width/2 - 22, 210, 44, 44);
+    }
+
+    // controls panel
+    ctx.fillStyle = 'rgba(20,5,31,0.75)';
+    ctx.fillRect(cv.width/2 - 330, 320, 660, 130);
+    ctx.strokeStyle = '#9b59d2'; ctx.lineWidth = 2;
+    ctx.strokeRect(cv.width/2 - 330, 320, 660, 130);
+    ctx.fillStyle = '#c99df0'; ctx.font = 'bold 16px Courier New';
+    ctx.fillText('ARROWS / WASD  MOVE      SPACE  JUMP (HOLD = HIGHER)', cv.width/2, 348);
+    ctx.fillText('DOWN + JUMP  BELLY BUMP      X / K  FIRE      R  RESTART', cv.width/2, 372);
+    ctx.fillStyle = '#8a7aa0';
+    ctx.fillText('TOUCH: D-PAD · JUMP · BUMP · FIRE BUTTONS', cv.width/2, 396);
+    ctx.fillStyle = '#ffc72c';
+    ctx.fillText('COFFEE = SHOTS   FIRE = FIREBALLS   COCOA = +1 LIFE   MELON = SHIELD', cv.width/2, 428);
+  } else {
+    // attract: hall of hefty
+    if (!attractTable) attractTable = hsLoad();
+    ctx.fillStyle = '#e6286e'; ctx.font = 'bold 40px Courier New';
+    ctx.fillText('HALL OF HEFTY', cv.width/2, 90);
+    ctx.font = 'bold 20px Courier New';
+    for (let i = 0; i < attractTable.length; i++) {
+      const e = attractTable[i];
+      ctx.fillStyle = i % 2 ? '#c99df0' : '#9b59d2';
+      ctx.fillText(String(i+1).padStart(2,' ') + '.  ' + (e.n + '        ').slice(0,8) + '  ' +
+                   String(e.s).padStart(7,' ') + '  L' + e.l, cv.width/2, 140 + i*30);
+    }
+  }
+  if (blink) {
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Courier New';
+    ctx.fillText('PRESS SPACE OR TAP TO PLAY', cv.width/2, 496);
+  }
+  ctx.fillStyle = '#8a7aa0'; ctx.font = '13px Courier New';
+  ctx.fillText('© 2026 HEFTY HIPPOS', cv.width/2, 528);
+  ctx.textAlign = 'left';
+}
+
 /* main loop — fixed timestep */
 let last = performance.now(), acc = 0;
 const DT = 1/60;
 function frame(now) {
+  if (appMode === 'title') {
+    const dt = Math.min(0.1, (now - last)/1000); last = now;
+    drawTitle(dt);
+    requestAnimationFrame(frame);
+    return;
+  }
   acc += Math.min(0.1, (now - last)/1000); last = now;
   while (acc >= DT) {
     step(game, input, DT);
