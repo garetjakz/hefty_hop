@@ -518,7 +518,7 @@ function mNoise(t, dur, vol, hp) {
   const g = a.createGain(), fl = a.createBiquadFilter();
   fl.type = 'highpass'; fl.frequency.value = hp;
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(vol, t + 0.003);
+  g.gain.linearRampToValueAtTime(vol, t + 0.006);
   g.gain.exponentialRampToValueAtTime(0.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(mBus()); s.start(t); s.stop(t + dur + 0.02);
 }
@@ -527,7 +527,7 @@ function mStep(step, t) {
   const root = M_ROOTS[bar] + key, chord = M_CHORDS[bar];
   if (s16 % 4 === 0) mKick(t);                                   // four on the floor
   if (s16 === 4 || s16 === 12) mNoise(t, 0.09, 0.22, 1800);      // snare
-  if (s16 % 4 === 2) mNoise(t, 0.03, 0.10, 6000);                // offbeat hat
+  if (s16 % 4 === 2) mNoise(t, 0.055, 0.055, 4500);              // offbeat hat
   if (s16 % 2 === 0)                                             // driving 8th bass
     mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'square', 0.10);
   if (s16 % 2 === 1)                                             // arp sparkle
@@ -539,8 +539,14 @@ function musicUpdate(active) {
   try {
     if (!MUSIC.on || !active || !AC || AC.state !== 'running') return;
     mBus();
-    if (MUSIC.nextT < AC.currentTime - 0.2) MUSIC.nextT = AC.currentTime + 0.05;
-    while (MUSIC.nextT < AC.currentTime + 0.15) {
+    const now = AC.currentTime;
+    // if we fell behind, skip forward — a note scheduled in the past has its
+    // attack ramp clamped away by WebAudio and lands as a click
+    if (MUSIC.nextT < now + 0.015) {
+      const behind = Math.ceil((now + 0.05 - MUSIC.nextT) / M_16TH);
+      if (behind > 0) { MUSIC.nextT += behind * M_16TH; MUSIC.step = (MUSIC.step + behind) % 64; }
+    }
+    while (MUSIC.nextT < now + 0.3) {
       mStep(MUSIC.step, MUSIC.nextT);
       MUSIC.step = (MUSIC.step + 1) % 64;
       MUSIC.nextT += M_16TH;
