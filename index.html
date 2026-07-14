@@ -701,9 +701,7 @@ async function gateCheck() {
   }
 }
 /* ---- play-as-your-hippo: in-browser sprite pipeline ------------------ */
-const HIPPO_IMG_URL = n => location.protocol === 'file:'
-  ? 'https://da1ezqlaxtxtv.cloudfront.net/images/' + n + '.png'
-  : '/hippo/' + n;   // same-origin Pages Function proxy — no CORS needed
+const HIPPO_IMG_URL = n => 'hippos/' + n + '.png';   // pre-baked sheets, all 8888
 let gateAddr = null;
 const selEl = document.getElementById('hippoSel');
 const selNum = document.getElementById('hippoNum');
@@ -722,114 +720,17 @@ function loadCrossImg(url) {
   });
 }
 
-/* remove the striped NFT background: flood from the borders — the black
-   character outline stops the fill, so body colors are safe even if they
-   match a stripe color */
-function stripBackground(data, w, hgt) {
-  const px = data.data, seen = new Uint8Array(w * hgt), stack = [];
-  const seeds = [];
-  for (let x = 0; x < w; x++) { seeds.push(x, (hgt-1)*w + x); }
-  for (let y = 0; y < hgt; y++) { seeds.push(y*w, y*w + w - 1); }
-  const cols = [];
-  for (const s of seeds) {
-    const r = px[s*4], g = px[s*4+1], b = px[s*4+2];
-    if (!cols.some(c => Math.abs(c[0]-r)+Math.abs(c[1]-g)+Math.abs(c[2]-b) < 30)) cols.push([r,g,b]);
+/* pre-baked combined sheet: [idle x2 | walk x6 | jump] at 84x80 per frame */
+function sheetsFromCombined(img) {
+  const F = 84, Hn = 80;
+  function cut(start, count) {
+    const c = mkCanvas(F * count, Hn);
+    const cc = c.getContext('2d');
+    for (let i = 0; i < count; i++) cc.drawImage(img, (start + i) * F, 0, F, Hn, i * F, 0, F, Hn);
+    c._fw = F;
+    return c;
   }
-  function isBg(i) {
-    const r = px[i*4], g = px[i*4+1], b = px[i*4+2];
-    for (const c of cols) {
-      if (Math.abs(c[0]-r) + Math.abs(c[1]-g) + Math.abs(c[2]-b) < 48) return true;
-      const cs = (c[0]+c[1]+c[2]) || 1;
-      const k = (r+g+b) / cs;   // drop shadow = darkened stripe color
-      if (k > 0.30 && k < 0.95 &&
-          Math.abs(r - k*c[0]) + Math.abs(g - k*c[1]) + Math.abs(b - k*c[2]) < 60) return true;
-    }
-    return false;
-  }
-  for (const s of seeds) if (!seen[s] && isBg(s)) { seen[s] = 1; stack.push(s); }
-  while (stack.length) {
-    const i = stack.pop();
-    px[i*4+3] = 0;
-    const x = i % w, y = (i / w) | 0;
-    if (x > 0 && !seen[i-1] && isBg(i-1)) { seen[i-1]=1; stack.push(i-1); }
-    if (x < w-1 && !seen[i+1] && isBg(i+1)) { seen[i+1]=1; stack.push(i+1); }
-    if (y > 0 && !seen[i-w] && isBg(i-w)) { seen[i-w]=1; stack.push(i-w); }
-    if (y < hgt-1 && !seen[i+w] && isBg(i+w)) { seen[i+w]=1; stack.push(i+w); }
-  }
-}
-
-function buildHippoSheets(srcImg) {
-  const CWn = 84, CHn = 80, CHAR = 78, WAIST = 0.74;
-  // source -> transparent, cropped, padded canvas
-  const raw = mkCanvas(srcImg.width, srcImg.height);
-  const rcx = raw.getContext('2d');
-  rcx.drawImage(srcImg, 0, 0);
-  const d = rcx.getImageData(0, 0, raw.width, raw.height);
-  stripBackground(d, raw.width, raw.height);
-  // bbox
-  let x0 = raw.width, x1 = 0, y0 = raw.height, y1 = 0;
-  for (let y = 0; y < raw.height; y += 2)
-    for (let x = 0; x < raw.width; x += 2)
-      if (d.data[(y*raw.width+x)*4+3] > 100) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x;
-        if (y < y0) y0 = y; if (y > y1) y1 = y;
-      }
-  if (x1 <= x0 || y1 <= y0) throw new Error('empty after bg strip');
-  rcx.putImageData(d, 0, 0);
-  const cw = x1-x0, chh = y1-y0, pad = (cw/3)|0;
-  const padded = mkCanvas(cw + 2*pad, chh + pad);
-  padded.getContext('2d').drawImage(raw, x0, y0, cw, chh, pad, (pad/2)|0, cw, chh);
-
-  function frameOf(rot, sy, legdx, tall, sx) {
-    tall = tall || 1; sx = sx || 1;
-    const big = mkCanvas(padded.width, padded.height);
-    const bx = big.getContext('2d');
-    bx.translate(big.width/2, big.height*0.92);
-    bx.rotate(rot * Math.PI/180);
-    bx.scale(sx, sy);
-    bx.translate(-big.width/2, -big.height*0.92);
-    bx.drawImage(padded, 0, 0);
-    // downscale so character stands CHAR*tall px
-    const scale = (CHAR*tall) / chh;
-    const sw = Math.max(1, Math.round(big.width*scale)), sh = Math.max(1, Math.round(big.height*scale));
-    const small = mkCanvas(sw, sh);
-    const smx = small.getContext('2d');
-    smx.imageSmoothingEnabled = true; smx.imageSmoothingQuality = 'high';
-    smx.drawImage(big, 0, 0, sw, sh);
-    // binarize alpha + place bottom-center on frame canvas
-    const sd = smx.getImageData(0, 0, sw, sh);
-    let bx0 = sw, bx1 = 0, by0 = sh, by1 = 0;
-    for (let i = 0; i < sw*sh; i++) {
-      sd.data[i*4+3] = sd.data[i*4+3] >= 110 ? 255 : 0;
-      if (sd.data[i*4+3]) { const xx=i%sw, yy=(i/sw)|0;
-        if (xx<bx0)bx0=xx; if (xx>bx1)bx1=xx; if (yy<by0)by0=yy; if (yy>by1)by1=yy; }
-    }
-    smx.putImageData(sd, 0, 0);
-    const fr = mkCanvas(CWn, CHn);
-    const fx2 = fr.getContext('2d');
-    const fw2 = bx1-bx0+1, fh2 = by1-by0+1;
-    fx2.drawImage(small, bx0, by0, fw2, fh2, ((CWn-fw2)/2)|0, CHn-fh2-1, fw2, fh2);
-    if (legdx) {   // leg-strip shift for the walk
-      const cut = Math.round(CHn*WAIST);
-      const legs = fx2.getImageData(0, cut, CWn, CHn-cut);
-      fx2.clearRect(0, cut, CWn, CHn-cut);
-      fx2.putImageData(legs, legdx, cut);
-    }
-    return fr;
-  }
-  const WALKF = [[3,1,3],[1.5,0.985,2],[0,1,0],[-3,1,-3],[-1.5,0.985,-2],[0,1,0]];
-  const sheets = {};
-  function sheet(frames) {
-    const s = mkCanvas(CWn*frames.length, CHn);
-    const sc = s.getContext('2d');
-    frames.forEach((f, i) => sc.drawImage(f, i*CWn, 0));
-    s._fw = CWn;
-    return s;
-  }
-  sheets.idle = sheet([frameOf(0,1,0), frameOf(0,0.97,0)]);
-  sheets.walk = sheet(WALKF.map(a => frameOf(a[0], a[1], a[2])));
-  sheets.jump = sheet([frameOf(-6, 1.08, 0, 1.05, 0.94)]);
-  return sheets;
+  return { idle: cut(0, 2), walk: cut(2, 6), jump: cut(8, 1) };
 }
 
 async function ownsHippo(addr, id) {
@@ -850,16 +751,14 @@ async function pickHippo() {
     }
     selStatus.textContent = 'FETCHING #' + id + ' FROM THE VAULT...';
     const img = await loadCrossImg(HIPPO_IMG_URL(id));
-    selStatus.textContent = 'PIXELIZING...';
-    await new Promise(r => setTimeout(r, 30));
-    const sh = buildHippoSheets(img);
+    const sh = sheetsFromCombined(img);
     IMG.heroIdle = sh.idle; IMG.heroWalk = sh.walk; IMG.heroJump = sh.jump;
     myHippo = id;
     try { localStorage.setItem('heftyhop_hippo', String(id)); } catch (e) {}
     selStatus.textContent = 'LOOKING HEFTY, #' + id + '!';
     setTimeout(gatePass, 700);
   } catch (e) {
-    selStatus.textContent = 'COULDN\'T BUILD YOUR HIPPO (ART CDN BLOCKED?) — SENDING DOUG';
+    selStatus.textContent = 'COULDN\'T LOAD YOUR HIPPO — SENDING DOUG';
     setTimeout(gatePass, 1400);
   }
 }
