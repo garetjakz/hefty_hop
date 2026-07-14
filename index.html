@@ -360,10 +360,10 @@ function drawEnemies() {
   for (const e of game.level.enemies) {
     if (!e.alive) continue;
     const px = e.x - camX; if (px < -100 || px > cv.width+100) continue;
-    const dw = 66, dh = 62, dx = px + e.w/2 - dw/2, dy = e.y + e.h - dh + 2;
+    const dw = 84, dh = 80, dx = px + e.w/2 - dw/2, dy = e.y + e.h - dh + 2;
     if (loaded === total) {
       if (Math.abs(e.vx) > 5) {
-        sheetFrame(IMG.enWalk, Math.floor(e.t*8) % 4, 420, dx, dy, dw, dh, e.vx < 0);
+        sheetFrame(IMG.enWalk, Math.floor(e.t*9) % 6, 420, dx, dy, dw, dh, e.vx < 0);
       } else {
         sheetFrame(IMG.enIdle, Math.floor(e.t*2) % 2, 420, dx, dy, dw, dh, false);
       }
@@ -380,7 +380,7 @@ function drawPlayer() {
   }
   const ghost = p.inv > 0;
   if (ghost) ctx.globalAlpha = 0.4 + 0.2 * Math.sin(performance.now() / 60);
-  const dw = 74, dh = 70;
+  const dw = 84, dh = 80;
   const dx = p.x + p.w/2 - dw/2 - camX, dy = p.y + p.h - dh + 2;
   if (loaded < total) { ctx.fillStyle = '#ffc72c'; ctx.fillRect(p.x-camX, p.y, p.w, p.h); return; }
   if (!p.grounded) {
@@ -389,7 +389,7 @@ function drawPlayer() {
     sheetFrame(IMG.heroJump, 0, 420, dx, dy, dw, dh, p.facing < 0);
     ctx.restore();
   } else if (Math.abs(p.vx) > 20) {
-    sheetFrame(IMG.heroWalk, Math.floor(p.animT*9) % 4, 420, dx, dy, dw, dh, p.facing < 0);
+    sheetFrame(IMG.heroWalk, Math.floor(p.animT*11) % 6, 420, dx, dy, dw, dh, p.facing < 0);
   } else {
     sheetFrame(IMG.heroIdle, Math.floor(p.animT*2) % 2, 420, dx, dy, dw, dh, p.facing < 0);
   }
@@ -719,9 +719,9 @@ function drawTitle(dt) {
 
     // sprites parade
     if (loaded === total) {
-      const wf = Math.floor(performance.now()/120) % 4;
-      sheetFrame(IMG.heroWalk, wf, 420, cv.width/2 - 210, 190, 118, 112, false);
-      sheetFrame(IMG.enWalk, wf, 420, cv.width/2 + 100, 196, 106, 100, true);
+      const wf = Math.floor(performance.now()/110) % 6;
+      sheetFrame(IMG.heroWalk, wf, 420, cv.width/2 - 250, 150, 168, 160, false);
+      sheetFrame(IMG.enWalk, wf, 420, cv.width/2 + 90, 158, 168, 160, true);
       const cf = Math.floor(performance.now()/110) % 4;
       ctx.drawImage(IMG.coin, cf*200, 0, 200, 200, cv.width/2 - 22, 210, 44, 44);
     }
