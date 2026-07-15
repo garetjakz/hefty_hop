@@ -172,22 +172,59 @@ function hsLoad() {
 }
 function hsSave(t) { try { localStorage.setItem(HS_KEY, JSON.stringify(t)); } catch (e) {} }
 function hsBegin() {
-  hs.table = hsLoad();
-  const qualifies = game.score > 0 &&
-    (hs.table.length < 10 || game.score > hs.table[hs.table.length - 1].s);
+  hs.mode = 'loading';
+  hs.table = hsLoad(); hs.global = false;
   hs.letters = new Array(HS_LEN).fill(HS_BLANK); hs.slot = 0; hs.newIdx = -1;
-  hs.mode = qualifies ? 'entry' : 'table';
+  const finish = () => {
+    const ref = hs.table.slice(0, 10);
+    const qualifies = game.score > 0 &&
+      (ref.length < 10 || game.score > ref[ref.length - 1].s);
+    hs.mode = qualifies ? 'entry' : 'table';
+  };
+  if (location.protocol === 'file:' || !window.fetch) { finish(); return; }
+  Promise.race([
+    fetch('/api/scores').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    new Promise(res => setTimeout(() => res(null), 3000)),
+  ]).then(list => {
+    if (Array.isArray(list)) { hs.global = true; hs.table = list; }
+    finish();
+  });
+}
+function hsDisplay() {
+  const out = hs.table.slice(0, 10);
+  let i = 0;
+  while (out.length < 10 && i < HS_DEFAULT.length) out.push(HS_DEFAULT[i++]);
+  return out;
+}
+function hsLocalInsert(entry) {
+  const t = hsLoad();
+  t.push(entry);
+  t.sort((a, b) => b.s - a.s);
+  hs.table = t.slice(0, 10);
+  hs.newIdx = hs.table.indexOf(entry);
+  hsSave(hs.table);
+  hs.global = false;
+  hs.mode = 'table';
 }
 function hsSubmit() {
   let name = hs.letters.map(i => HS_CHARS[i]).join('').replace(/\s+$/, '');
   if (!name) name = 'HIPPO';
-  const entry = { n: name, s: game.score, l: game.levelNum };
-  hs.table.push(entry);
-  hs.table.sort((a, b) => b.s - a.s);
-  hs.table = hs.table.slice(0, 10);
-  hs.newIdx = hs.table.indexOf(entry);
-  hsSave(hs.table);
-  hs.mode = 'table';
+  const entry = { n: name, s: game.score, l: game.levelNum, h: myHippo || 0 };
+  if (!hs.global) { hsLocalInsert(entry); return; }
+  hs.mode = 'saving';
+  fetch('/api/scores', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).then(r => (r.ok ? r.json() : null))
+    .then(top => {
+      if (Array.isArray(top)) {
+        hs.table = top;
+        hs.newIdx = top.findIndex(e => e.n === entry.n && e.s === entry.s && e.l === entry.l);
+        hs.mode = 'table';
+      } else hsLocalInsert(entry);
+    })
+    .catch(() => hsLocalInsert(entry));
 }
 
 /* game */
@@ -590,6 +627,12 @@ function drawHiscores() {
   ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 20px Courier New';
   ctx.fillText('SCORE ' + String(game.score).padStart(6,'0') + '   LEVEL ' + game.levelNum, cv.width/2, 112);
   const blink = Math.floor(performance.now()/400) % 2;
+  if (hs.mode === 'loading' || hs.mode === 'saving') {
+    ctx.fillStyle = '#c99df0'; ctx.font = 'bold 22px Courier New';
+    if (blink) ctx.fillText(hs.mode === 'loading' ? 'CALLING THE TIE CLUB...' : 'CARVING YOUR NAME...', cv.width/2, 280);
+    ctx.textAlign = 'left';
+    return;
+  }
   if (hs.mode === 'entry') {
     ctx.fillStyle = '#8affc1'; ctx.font = 'bold 26px Courier New';
     ctx.fillText('NEW HIGH SCORE — ENTER YOUR INITIALS', cv.width/2, 180);
@@ -612,16 +655,17 @@ function drawHiscores() {
     ctx.fillText('type your name (8 letters max), Enter or OK to confirm', cv.width/2, 440);
   } else {
     ctx.fillStyle = '#8affc1'; ctx.font = 'bold 24px Courier New';
-    ctx.fillText('★ HALL OF HEFTY ★', cv.width/2, 160);
+    ctx.fillText('★ HALL OF HEFTY ★' + (hs.global ? '  ·  WORLDWIDE' : '  ·  THIS MACHINE'), cv.width/2, 160);
     ctx.font = 'bold 20px Courier New';
-    for (let i = 0; i < hs.table.length; i++) {
-      const e = hs.table[i];
+    const rows = hsDisplay();
+    for (let i = 0; i < rows.length; i++) {
+      const e = rows[i];
       const y = 196 + i * 27;
       const isNew = i === hs.newIdx;
       ctx.fillStyle = isNew ? (blink ? '#ffc72c' : '#fff') : (i % 2 ? '#c99df0' : '#9b59d2');
       const rank = String(i + 1).padStart(2, ' ');
       const score = String(e.s).padStart(7, ' ');
-      ctx.fillText(rank + '.  ' + (e.n + '        ').slice(0, 8) + '  ' + score + '  L' + e.l, cv.width/2, y);
+      ctx.fillText(rank + '.  ' + (e.n + '        ').slice(0, 8) + '  ' + score + '  L' + e.l + (e.h ? '  #' + e.h : ''), cv.width/2, y);
     }
     if (blink) {
       ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 18px Courier New';
@@ -823,8 +867,14 @@ function drawTitle(dt) {
     ctx.fillStyle = '#ffc72c';
     ctx.fillText('COFFEE = SHOTS   FIRE = FIREBALLS   COCOA = +1 LIFE   MELON = SHIELD', cv.width/2, 428);
   } else {
-    // attract: hall of hefty
-    if (!attractTable) attractTable = hsLoad();
+    // attract: hall of hefty (global when reachable)
+    if (!attractTable) {
+      attractTable = hsLoad();
+      if (location.protocol !== 'file:' && window.fetch)
+        fetch('/api/scores').then(r => (r.ok ? r.json() : null))
+          .then(list => { if (Array.isArray(list) && list.length) attractTable = list; })
+          .catch(() => {});
+    }
     ctx.fillStyle = '#e6286e'; ctx.font = 'bold 40px Courier New';
     ctx.fillText('HALL OF HEFTY', cv.width/2, 90);
     ctx.font = 'bold 20px Courier New';
