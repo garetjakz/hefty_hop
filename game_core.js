@@ -95,11 +95,22 @@ function generateLevel(n, rng) {
   }
   function pickFlat() { return flats[Math.floor(rng() * flats.length)]; }
 
-  // pins over pits + arcs on flats
+  // pins over pits: follow the actual full-jump trajectory so a single
+  // clean jump collects the whole arc (flat lines were uncollectable)
+  function jumpRise(x) {           // px above takeoff, matches player physics
+    return x <= 145 ? 2.5 * x - 0.00702 * x * x
+                    : 223 - 0.01276 * (x - 145) * (x - 145);
+  }
   for (let cx = 8; cx < W - 8; cx++)
     if (gt[cx] === null && gt[cx-1] !== null) {
-      let gx = cx, t = gt[cx-1];
-      while (gx < W && gt[gx] === null) { rows[t-2][gx] = 'o'; gx++; }
+      const t = gt[cx-1];
+      let wgap = 0;
+      while (cx + wgap < W && gt[cx + wgap] === null) wgap++;
+      for (let j = 0; j < wgap; j++) {
+        const x = (j + 0.5) * 48 + 10;                     // launch ~10px before edge
+        const lift = Math.max(1, Math.min(5, Math.round((jumpRise(x) + 49) / 48)));
+        if (t - lift >= 0) rows[t - lift][cx + j] = 'o';
+      }
     }
   // one-way platforms with pin rows on wide flats
   for (const f of flats) {
@@ -109,7 +120,7 @@ function generateLevel(n, rng) {
       for (let cx = c0; cx <= c1; cx++) { rows[f.top-4][cx] = '='; rows[f.top-5][cx] = 'o'; }
     } else if (rng() < 0.5) {
       const c0 = f.start + 1, c1 = Math.min(f.end - 1, c0 + 2);
-      for (let cx = c0; cx <= c1; cx++) rows[f.top-2][cx] = 'o';
+      for (let cx = c0; cx <= c1; cx++) rows[f.top-1][cx] = 'o';   // run-through height
     }
   }
   // cages: 1 + n/2 (cap 5) — solid obstacles, so keep 6 cols clear of pits
@@ -131,7 +142,7 @@ function generateLevel(n, rng) {
   for (let k = 0, tries = 0; k < nSpots && tries < 60; tries++) {
     const f = pickFlat(); if (!f) break;
     const cx = f.start + 1 + Math.floor(rng() * Math.max(1, f.end - f.start - 1));
-    if (rows[f.top-2][cx] === '.' && claim(cx, 1)) { rows[f.top-2][cx] = '?'; k++; }
+    if (rows[f.top-1][cx] === '.' && claim(cx, 1)) { rows[f.top-1][cx] = '?'; k++; }   // run-through height
   }
   rows[top-1][W-4] = 'E';
   return rows.map(r => r.join(''));
