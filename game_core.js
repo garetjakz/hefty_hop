@@ -144,6 +144,44 @@ function generateLevel(n, rng) {
     const cx = f.start + 1 + Math.floor(rng() * Math.max(1, f.end - f.start - 1));
     if (rows[f.top-1][cx] === '.' && claim(cx, 1)) { rows[f.top-1][cx] = '?'; k++; }   // run-through height
   }
+  // per-turf signature hazard (turf rotates with level number)
+  const turf = (n - 1) % 4;
+  const nHaz = Math.min(3, 1 + Math.floor((n - 1) / 4));
+  if (turf === 0) {
+    // Ember Alley: vents in pits — embers rise ~2.4 tiles, full jumps clear them
+    let placed = 0;
+    for (let cx = 8; cx < W - 8 && placed < nHaz; cx++)
+      if (gt[cx] === null && gt[cx-1] !== null) {
+        let wgap = 0;
+        while (cx + wgap < W && gt[cx + wgap] === null) wgap++;
+        if (wgap >= 2) { rows[gt[cx-1]][cx + (wgap >> 1)] = 'v'; placed++; }
+        cx += wgap;
+      }
+  } else if (turf === 1) {
+    // Heart Court: bounce-pad hearts on long safe flats
+    for (let k = 0, tries = 0; k < nHaz && tries < 40; tries++) {
+      const f = pickFlat(); if (!f) break;
+      if (f.end - f.start < 6) continue;
+      const cx = f.start + 2 + Math.floor(rng() * Math.max(1, f.end - f.start - 3));
+      if (!nearPitWide[cx] && rows[f.top-2][cx] === '.' && claim(cx, 2)) { rows[f.top-2][cx] = 'B'; k++; }
+    }
+  } else if (turf === 2) {
+    // Clockwork Row: timed gates blocking the path
+    for (let k = 0, tries = 0; k < nHaz && tries < 40; tries++) {
+      const f = pickFlat(); if (!f) break;
+      if (f.end - f.start < 6) continue;
+      const cx = f.start + 3 + Math.floor(rng() * Math.max(1, f.end - f.start - 5));
+      if (!nearPit[cx] && rows[f.top-1][cx] === '.' && claim(cx, 2)) { rows[f.top-1][cx] = 'G'; k++; }
+    }
+  } else {
+    // Patchwork Yard: patrolling sawblades on long flats
+    for (let k = 0, tries = 0; k < nHaz && tries < 40; tries++) {
+      const f = pickFlat(); if (!f) break;
+      if (f.end - f.start < 5) continue;
+      const cx = f.start + 2 + Math.floor(rng() * Math.max(1, f.end - f.start - 3));
+      if (cx > 12 && !nearPit[cx] && rows[f.top-1][cx] === '.' && claim(cx, 3)) { rows[f.top-1][cx] = 'w'; k++; }
+    }
+  }
   rows[top-1][W-4] = 'E';
   return rows.map(r => r.join(''));
 }
@@ -168,6 +206,7 @@ const LEVEL1 = [
 function parseLevel(rows) {
   const grid = [];
   const enemies = [], pins = [], cages = [], powerups = [], puSpots = [];
+  const embers = [], hearts = [], gates = [], saws = [];
   let exit = null;
   for (let y = 0; y < rows.length; y++) {
     grid.push([]);
@@ -186,10 +225,15 @@ function parseLevel(rows) {
       else if (ch === 'h') powerups.push({ x: px + C.TILE/2, y: py + C.TILE/2, type: 'hotchoc', taken: false });
       else if (ch === 'm') powerups.push({ x: px + C.TILE/2, y: py + C.TILE/2, type: 'melon', taken: false });
       else if (ch === '?') puSpots.push({ x: px + C.TILE/2, y: py + C.TILE/2 });
+      else if (ch === 'v') embers.push({ tx: x, top: y, phase: (x * 0.77) % 3.2, y: 0, active: false });
+      else if (ch === 'B') hearts.push({ x: px + C.TILE/2, y: py + C.TILE/2, cd: 0 });
+      else if (ch === 'G') gates.push({ tx: x, baseTy: y, phase: (x * 1.13) % 3.6, open: false });
+      else if (ch === 'w') saws.push({ x: px + 6, y: py + C.TILE - 20, w: 36, h: 20, vx: -55, vy: 0 });
       else if (ch === 'E') exit = { x: px, y: 0, w: C.TILE, h: (y + 1) * C.TILE, doorY: py - C.TILE };
     }
   }
-  return { grid, enemies, pins, cages, powerups, puSpots, exit, w: rows[0].length, h: rows.length };
+  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws,
+           exit, w: rows[0].length, h: rows.length };
 }
 
 function createGame(levelRows, rng, levelNum) {
@@ -244,6 +288,9 @@ function solidAt(level, tx, ty) {
   // unbroken cages are solid
   for (const c of level.cages)
     if (!c.broken && c.tx === tx && c.ty === ty) return true;
+  // closed clockwork gates block a 3-tile column
+  for (const gte of (level.gates || []))
+    if (!gte.open && tx === gte.tx && ty <= gte.baseTy && ty >= gte.baseTy - 2) return true;
   return false;
 }
 
@@ -292,6 +339,18 @@ function moveAndCollide(level, b, dt, dropThrough) {
 
 function overlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function damagePlayer(g, fromX) {
+  const p = g.player;
+  if (p.inv > 0) return;
+  p.inv = C.HIT_IFRAMES;
+  p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * C.KNOCKBACK; p.vy = -260;
+  if (p.shield) { p.shield = false; g.events.push('shieldbreak'); }
+  else {
+    p.hits++; g.events.push('hurt');
+    if (p.hits >= C.MAX_HITS) loseLife(g, 'hits');
+  }
 }
 
 function respawn(g) {
@@ -475,6 +534,48 @@ function step(g, input, dt) {
       }
       g.events.push('power:' + pu.type);
     }
+  }
+
+  // hazards
+  for (const gte of L.gates) {
+    const cyc = (g.t + gte.phase) % 3.6;
+    gte.open = cyc > 1.4;               // closed 1.4s, open 2.2s
+    gte.cyc = cyc;
+  }
+  for (const em of L.embers) {
+    const cyc = (g.t + em.phase) % 3.2;
+    em.cyc = cyc;
+    // 0-0.7 warning glow, 0.7-2.2 ember up-and-down, then idle
+    if (cyc > 0.7 && cyc < 2.2) {
+      const k = (cyc - 0.7) / 1.5;                    // 0..1
+      const height = Math.sin(Math.PI * k) * 2.4 * C.TILE;   // peaks 2.4 tiles above edge
+      em.y = em.top * C.TILE - height + C.TILE * 0.5;
+      em.active = height > 8;
+      const box = { x: em.tx * C.TILE + 14, y: em.y - 16, w: 20, h: 32 };
+      if (em.active && overlap(p, box)) damagePlayer(g, box.x + 10);
+    } else em.active = false;
+  }
+  for (const ht of L.hearts) {
+    ht.cd = Math.max(0, ht.cd - dt);
+    const box = { x: ht.x - 20, y: ht.y - 18, w: 40, h: 36 };
+    if (ht.cd <= 0 && p.vy > -60 && overlap(p, box)) {   // boing on any real contact
+      p.vy = -1050; p.grounded = false; ht.cd = 0.35;
+      g.events.push('heartbounce');
+    }
+  }
+  for (const sw of L.saws) {
+    const pvx = sw.vx;
+    sw.vy = Math.min(sw.vy + C.GRAV * dt, 1200);
+    const sr = moveAndCollide(L, sw, dt, false);
+    if (sr.hitWall) sw.vx = pvx >= 0 ? -55 : 55;
+    if (sw.vx === 0) sw.vx = -55;
+    if (sr.landed) {
+      const dir = sw.vx > 0 ? 1 : -1;
+      const ty2 = Math.floor((sw.y + sw.h + 2) / C.TILE);
+      const ntx = Math.floor((dir > 0 ? sw.x + sw.w + 2 : sw.x - 2) / C.TILE);
+      if (!solidAt(L, ntx, ty2) && !oneWayAt(L, ntx, ty2)) sw.vx = -sw.vx;
+    }
+    if (overlap(p, sw)) damagePlayer(g, sw.x + sw.w / 2);   // no stomping a sawblade
   }
 
   // pins

@@ -430,6 +430,74 @@ function drawShots() {
     }
   }
 }
+function drawHazards() {
+  const L = game.level, now = performance.now();
+  for (const em of L.embers) {                        // rising embers + vent glow
+    const px = em.tx * T - camX;
+    if (px < -T || px > cv.width + T) continue;
+    if (em.cyc !== undefined && em.cyc < 0.7) {        // warning shimmer
+      ctx.fillStyle = 'rgba(255,122,24,' + (0.25 + 0.2 * Math.sin(now / 60)).toFixed(2) + ')';
+      ctx.fillRect(px + 10, em.top * T - 6, 28, 6);
+    }
+    if (em.active) {
+      const fl = Math.floor(now / 60) % 2;
+      ctx.fillStyle = fl ? '#ff7a18' : '#ffd82e';
+      ctx.beginPath(); ctx.arc(px + T/2, em.y, 10, 0, 7); ctx.fill();
+      ctx.fillStyle = fl ? '#ffd82e' : '#ff4444';
+      ctx.beginPath(); ctx.arc(px + T/2, em.y + 8, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,122,24,0.35)';
+      ctx.beginPath(); ctx.arc(px + T/2, em.y + 18, 5, 0, 7); ctx.fill();
+    }
+  }
+  for (const ht of L.hearts) {                        // bounce-pad hearts
+    const px = ht.x - camX;
+    if (px < -40 || px > cv.width + 40) continue;
+    const pulse = 1 + 0.12 * Math.sin(now / 220 + ht.x);
+    const r = 16 * pulse, y = ht.y + Math.sin(now / 300 + ht.x) * 3;
+    ctx.fillStyle = '#e6286e';
+    ctx.beginPath();
+    ctx.moveTo(px, y + r * 0.9);
+    ctx.bezierCurveTo(px - r * 1.3, y - r * 0.3, px - r * 0.5, y - r * 1.1, px, y - r * 0.35);
+    ctx.bezierCurveTo(px + r * 0.5, y - r * 1.1, px + r * 1.3, y - r * 0.3, px, y + r * 0.9);
+    ctx.fill();
+    ctx.fillStyle = '#ff8cc3';
+    ctx.beginPath(); ctx.arc(px - r * 0.4, y - r * 0.45, r * 0.22, 0, 7); ctx.fill();
+  }
+  for (const gte of L.gates) {                        // clockwork gates
+    const px = gte.tx * T - camX;
+    if (px < -T || px > cv.width + T) continue;
+    const topY = (gte.baseTy - 2) * T, botY = (gte.baseTy + 1) * T;
+    if (!gte.open) {
+      ctx.fillStyle = '#d8b45a';
+      for (let i = 0; i < 3; i++) ctx.fillRect(px + 8 + i * 14, topY, 8, botY - topY);
+      ctx.fillStyle = '#7a5a1e';
+      ctx.fillRect(px + 2, topY, T - 4, 8);
+      ctx.fillRect(px + 2, botY - 8, T - 4, 8);
+    } else {
+      const closing = gte.cyc !== undefined && gte.cyc > 3.2;   // about to slam
+      ctx.fillStyle = closing && Math.floor(now / 120) % 2 ? '#ff4444' : '#7a5a1e';
+      ctx.fillRect(px + 2, topY, T - 4, 8);
+    }
+  }
+  for (const sw of L.saws) {                          // patrolling sawblades
+    const px = sw.x + sw.w/2 - camX;
+    if (px < -60 || px > cv.width + 60) continue;
+    const cy = sw.y + sw.h - 14, rot = now / 90;
+    ctx.fillStyle = '#8a8a92';
+    ctx.beginPath(); ctx.arc(px, cy, 16, 0, 7); ctx.fill();
+    ctx.fillStyle = '#c8c8d0';
+    for (let i = 0; i < 8; i++) {
+      const a = rot + i * Math.PI / 4;
+      ctx.beginPath();
+      ctx.moveTo(px + Math.cos(a) * 14, cy + Math.sin(a) * 14);
+      ctx.lineTo(px + Math.cos(a + 0.22) * 22, cy + Math.sin(a + 0.22) * 22);
+      ctx.lineTo(px + Math.cos(a + 0.44) * 14, cy + Math.sin(a + 0.44) * 14);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#3a3a42';
+    ctx.beginPath(); ctx.arc(px, cy, 5, 0, 7); ctx.fill();
+  }
+}
 function drawEnemies() {
   for (const e of game.level.enemies) {
     if (!e.alive) continue;
@@ -568,6 +636,7 @@ const SFX = {
   'power:out':    () => beep(300, 150, 0.2, 'triangle', 0.06),
   'power:hotchoc':() => { beep(440, 660, 0.15, 'sine', 0.1); setTimeout(() => beep(660, 880, 0.25, 'sine', 0.1), 120); },
   'power:melon':  () => beep(220, 440, 0.18, 'triangle', 0.1),
+  heartbounce:    () => { beep(220, 880, 0.22, 'sine', 0.12); },
   shieldbreak:    () => beep(500, 100, 0.3, 'sawtooth', 0.1),
   'die:pit':  () => beep(400, 60, 0.5, 'sawtooth', 0.1),
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
@@ -960,7 +1029,7 @@ function frame(now) {
   MUSIC.key = (game.levelNum - 1) % 4;
   musicUpdate(!game.gameOver);
   cam();
-  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawEnemies(); drawShots(); drawPlayer(); drawHUD(); drawFx();
+  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawEnemies(); drawShots(); drawPlayer(); drawHUD(); drawFx();
   if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
   else if (game.gameOver) {
     if (hs.mode === null) hsBegin();
