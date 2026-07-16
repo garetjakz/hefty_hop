@@ -306,7 +306,7 @@ function solidAt(level, tx, ty) {
     if (!c.broken && c.tx === tx && c.ty === ty) return true;
   // closed clockwork gates block a 3-tile column
   for (const gte of (level.gates || []))
-    if (!gte.open && tx === gte.tx && ty <= gte.baseTy && ty >= gte.baseTy - 2) return true;
+    if (!gte.open && tx === gte.tx && ty <= gte.baseTy && ty >= gte.baseTy - 4) return true;
   return false;
 }
 

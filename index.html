@@ -466,7 +466,7 @@ function drawHazards() {
   for (const gte of L.gates) {                        // clockwork gates
     const px = gte.tx * T - camX;
     if (px < -T || px > cv.width + T) continue;
-    const topY = (gte.baseTy - 2) * T, botY = (gte.baseTy + 1) * T;
+    const topY = Math.max(0, (gte.baseTy - 4) * T), botY = (gte.baseTy + 1) * T;
     if (!gte.open) {
       ctx.fillStyle = '#d8b45a';
       for (let i = 0; i < 3; i++) ctx.fillRect(px + 8 + i * 14, topY, 8, botY - topY);
