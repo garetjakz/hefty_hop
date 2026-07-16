@@ -118,7 +118,7 @@ addEventListener('keydown', e => {
   }
   const k = KEY[e.key]; if (k) { input[k] = true; e.preventDefault(); }
   if (e.key === 'r' || e.key === 'R') {
-    if (game.gameOver && hs.mode === 'table') { attractTable = null; titleT = 0; appMode = 'title'; hs.mode = null; }
+    if (game.gameOver && hs.mode === 'table') { attractTable = null; attractLoading = false; titleT = 0; appMode = 'title'; hs.mode = null; }
     else reset();
   }
   if (e.key === 'Enter' && game.won) advance();
@@ -151,7 +151,7 @@ cv.addEventListener('pointerdown', ev => {
     if (x > cv.width/2 - 70 && x < cv.width/2 + 70 && y > 360 && y < 410) hsSubmit();
     return;
   }
-  attractTable = null; titleT = 0; appMode = 'title'; hs.mode = null;
+  attractTable = null; attractLoading = false; titleT = 0; appMode = 'title'; hs.mode = null;
 });
 
 /* high scores — classic 3-initial arcade table */
@@ -819,7 +819,7 @@ if (GATE_ON) {
 
 /* ---- title / attract screen ---------------------------------------- */
 let appMode = 'title';
-let titleT = 0, attractTable = null;
+let titleT = 0, attractTable = null, attractLoading = false;
 function startGame() { reset(); appMode = 'game'; }
 function drawTitle(dt) {
   titleT += dt;
@@ -867,22 +867,35 @@ function drawTitle(dt) {
     ctx.fillStyle = '#ffc72c';
     ctx.fillText('COFFEE = SHOTS   FIRE = FIREBALLS   COCOA = +1 LIFE   MELON = SHIELD', cv.width/2, 428);
   } else {
-    // attract: hall of hefty (global when reachable)
-    if (!attractTable) {
-      attractTable = hsLoad();
-      if (location.protocol !== 'file:' && window.fetch)
-        fetch('/api/scores').then(r => (r.ok ? r.json() : null))
-          .then(list => { if (Array.isArray(list) && list.length) attractTable = list; })
-          .catch(() => {});
+    // attract: hall of hefty — wait for the global table, no stale flash
+    if (!attractTable && !attractLoading) {
+      if (location.protocol !== 'file:' && window.fetch) {
+        attractLoading = true;
+        Promise.race([
+          fetch('/api/scores').then(r => (r.ok ? r.json() : null)).catch(() => null),
+          new Promise(res => setTimeout(() => res(null), 3000)),
+        ]).then(list => {
+          attractTable = (Array.isArray(list) && list.length) ? list : hsLoad();
+          attractLoading = false;
+        });
+      } else attractTable = hsLoad();
     }
     ctx.fillStyle = '#e6286e'; ctx.font = 'bold 40px Courier New';
     ctx.fillText('HALL OF HEFTY', cv.width/2, 90);
     ctx.font = 'bold 20px Courier New';
-    for (let i = 0; i < attractTable.length; i++) {
-      const e = attractTable[i];
-      ctx.fillStyle = i % 2 ? '#c99df0' : '#9b59d2';
-      ctx.fillText(String(i+1).padStart(2,' ') + '.  ' + (e.n + '        ').slice(0,8) + '  ' +
-                   String(e.s).padStart(7,' ') + '  L' + e.l, cv.width/2, 140 + i*30);
+    if (!attractTable) {
+      ctx.fillStyle = '#c99df0';
+      if (blink) ctx.fillText('CALLING THE TIE CLUB...', cv.width/2, 260);
+    } else {
+      const rows = attractTable.slice(0, 10);
+      let di = 0;
+      while (rows.length < 10 && di < HS_DEFAULT.length) rows.push(HS_DEFAULT[di++]);
+      for (let i = 0; i < rows.length; i++) {
+        const e = rows[i];
+        ctx.fillStyle = i % 2 ? '#c99df0' : '#9b59d2';
+        ctx.fillText(String(i+1).padStart(2,' ') + '.  ' + (e.n + '        ').slice(0,8) + '  ' +
+                     String(e.s).padStart(7,' ') + '  L' + e.l + (e.h ? '  #' + e.h : ''), cv.width/2, 140 + i*30);
+      }
     }
   }
   if (blink) {
