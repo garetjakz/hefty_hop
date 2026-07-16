@@ -489,11 +489,13 @@ function drawHUD() {
   }
   if (game.player.weapon) {
     ctx.fillStyle = game.player.weapon === 'coffee' ? '#c9a171' : '#ff9a3c';
-    ctx.fillText(game.player.weapon.toUpperCase() + ' x ' + game.player.ammo, 560, 24);
+    ctx.fillText(game.player.weapon.toUpperCase() + ' x ' + game.player.ammo, 535, 24);
   }
   ctx.fillStyle = '#8affc1'; ctx.font = 'bold 14px Courier New';
+  ctx.textAlign = 'right';
   const bgName = BGS[(game.levelNum - 1) % BGS.length].replace(/_/g, ' ').toUpperCase();
-  ctx.fillText(levelName() + ' · ' + bgName, cv.width - 330, 22);
+  ctx.fillText(levelName() + ' · ' + bgName, cv.width - 12, 22);
+  ctx.textAlign = 'left';
 }
 function overlay(big, small) {
   ctx.fillStyle = 'rgba(20,5,31,0.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
