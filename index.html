@@ -511,8 +511,30 @@ function overlay(big, small) {
 /* retro SFX — tiny WebAudio synth driven by core events */
 let AC = null;
 function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
-addEventListener('pointerdown', () => ac().resume(), { once: false });
-addEventListener('keydown', () => ac().resume(), { once: false });
+// iOS: play even when the silent/Action switch is on (iOS 17+)
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+// canonical unlock ritual — some WebKit builds only unlock via touchend/click,
+// and only fully after a (silent) buffer actually plays inside the gesture
+let audioUnlocked = false;
+function audioUnlock() {
+  try {
+    const a = ac();
+    a.resume();
+    if (!audioUnlocked) {
+      const b = a.createBuffer(1, 1, 22050);
+      const src = a.createBufferSource();
+      src.buffer = b; src.connect(a.destination); src.start(0);
+      audioUnlocked = true;
+    }
+  } catch (e) {}
+}
+addEventListener('pointerdown', audioUnlock);
+addEventListener('touchend', audioUnlock, { passive: true });
+addEventListener('click', audioUnlock);
+addEventListener('keydown', audioUnlock);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && AC && AC.state !== 'running') AC.resume();
+});
 function beep(f0, f1, dur, type, vol) {
   try {
     const a = ac(), o = a.createOscillator(), g = a.createGain();
