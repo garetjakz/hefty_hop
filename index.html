@@ -34,8 +34,10 @@
 <body>
 <div id="gate">
   <h1>HEFTY HOP</h1>
-  <p>Holders only — the Tie Club bouncer checks your wallet for a Hefty Hippo before you get in.</p>
-  <button id="gateBtn">CONNECT WALLET</button>
+  <p>Everyone's welcome at the Tie Club. Holders play as their own hippo — connect to prove it. No hippo? Doug will sub in for you.</p>
+  <button id="gateBtn">CONNECT WALLET — PLAY AS YOUR HIPPO</button>
+  <button id="gateGuest" style="background:none;color:#8affc1;border:2px solid #3a2455;padding:10px 22px;
+          font-family:inherit;font-size:16px;cursor:pointer;border-radius:8px">PLAY AS DOUG — NO WALLET NEEDED</button>
   <div id="gateStatus"></div>
   <p class="small" id="gateHint"></p>
   <div id="hippoSel" style="display:none;flex-direction:column;align-items:center;gap:12px">
@@ -192,9 +194,29 @@ function hsBegin() {
 }
 function hsDisplay() {
   const out = hs.table.slice(0, 10);
-  let i = 0;
-  while (out.length < 10 && i < HS_DEFAULT.length) out.push(HS_DEFAULT[i++]);
+  if (!hs.global) {                       // fake seeds are local-arcade flavor only
+    let i = 0;
+    while (out.length < 10 && i < HS_DEFAULT.length) out.push(HS_DEFAULT[i++]);
+  }
   return out;
+}
+// fixed-width row + left-aligned draw so columns always line up
+function scoreRow(i, e) {
+  return String(i + 1).padStart(2, ' ') + '.  ' +
+         (e.n + '        ').slice(0, 8) + '  ' +
+         String(e.s).padStart(7, ' ') + '  ' +
+         ('L' + e.l).padEnd(4, ' ') +
+         (e.h ? '#' + e.h : '');
+}
+function drawScoreRows(rows, yStart, newIdx, blink) {
+  ctx.textAlign = 'left';
+  const x = cv.width / 2 - 220;
+  for (let i = 0; i < rows.length; i++) {
+    const isNew = i === newIdx;
+    ctx.fillStyle = isNew ? (blink ? '#ffc72c' : '#fff') : (i % 2 ? '#c99df0' : '#9b59d2');
+    ctx.fillText(scoreRow(i, rows[i]), x, yStart + i * 27);
+  }
+  ctx.textAlign = 'center';
 }
 function hsLocalInsert(entry) {
   const t = hsLoad();
@@ -657,16 +679,7 @@ function drawHiscores() {
     ctx.fillStyle = '#8affc1'; ctx.font = 'bold 24px Courier New';
     ctx.fillText('★ HALL OF HEFTY ★' + (hs.global ? '  ·  WORLDWIDE' : '  ·  THIS MACHINE'), cv.width/2, 160);
     ctx.font = 'bold 20px Courier New';
-    const rows = hsDisplay();
-    for (let i = 0; i < rows.length; i++) {
-      const e = rows[i];
-      const y = 196 + i * 27;
-      const isNew = i === hs.newIdx;
-      ctx.fillStyle = isNew ? (blink ? '#ffc72c' : '#fff') : (i % 2 ? '#c99df0' : '#9b59d2');
-      const rank = String(i + 1).padStart(2, ' ');
-      const score = String(e.s).padStart(7, ' ');
-      ctx.fillText(rank + '.  ' + (e.n + '        ').slice(0, 8) + '  ' + score + '  L' + e.l + (e.h ? '  #' + e.h : ''), cv.width/2, y);
-    }
+    drawScoreRows(hsDisplay(), 196, hs.newIdx, blink);
     if (blink) {
       ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 18px Courier New';
       ctx.fillText('TAP OR PRESS R FOR TITLE SCREEN', cv.width/2, 500);
@@ -737,8 +750,8 @@ async function gateCheck() {
       selEl.style.display = 'flex';
       try { const prev = localStorage.getItem('heftyhop_hippo'); if (prev) selNum.value = prev; } catch (e) {}
     } else {
-      gateStatus.textContent = 'NO HIPPO, NO ENTRY';
-      gateHint.innerHTML = 'The bouncer doesn\'t negotiate. <a href="' + OPENSEA + '" target="_blank">Adopt a Hefty Hippo on OpenSea</a> and come back.';
+      gateStatus.textContent = 'NO HIPPO IN THIS WALLET — DOUG WILL SUB IN';
+      gateHint.innerHTML = 'Want to play as your own? <a href="' + OPENSEA + '" target="_blank">Adopt a Hefty Hippo on OpenSea</a>. Meanwhile, the button below gets you in as Doug.';
     }
   } catch (e) {
     gateStatus.textContent = 'CONNECTION CANCELLED — TRY AGAIN';
@@ -808,6 +821,7 @@ async function pickHippo() {
 }
 
 if (GATE_ON) {
+  document.getElementById('gateGuest').addEventListener('click', gatePass);
   selGo.addEventListener('click', pickHippo);
   selNum.addEventListener('keydown', e => { if (e.key === 'Enter') pickHippo(); e.stopPropagation(); });
   selSkip.addEventListener('click', gatePass);
@@ -887,15 +901,7 @@ function drawTitle(dt) {
       ctx.fillStyle = '#c99df0';
       if (blink) ctx.fillText('CALLING THE TIE CLUB...', cv.width/2, 260);
     } else {
-      const rows = attractTable.slice(0, 10);
-      let di = 0;
-      while (rows.length < 10 && di < HS_DEFAULT.length) rows.push(HS_DEFAULT[di++]);
-      for (let i = 0; i < rows.length; i++) {
-        const e = rows[i];
-        ctx.fillStyle = i % 2 ? '#c99df0' : '#9b59d2';
-        ctx.fillText(String(i+1).padStart(2,' ') + '.  ' + (e.n + '        ').slice(0,8) + '  ' +
-                     String(e.s).padStart(7,' ') + '  L' + e.l + (e.h ? '  #' + e.h : ''), cv.width/2, 140 + i*30);
-      }
+      drawScoreRows(attractTable.slice(0, 10), 140, -1, blink);
     }
   }
   if (blink) {
