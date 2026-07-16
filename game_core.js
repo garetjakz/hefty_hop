@@ -154,7 +154,14 @@ function generateLevel(n, rng) {
       if (gt[cx] === null && gt[cx-1] !== null) {
         let wgap = 0;
         while (cx + wgap < W && gt[cx + wgap] === null) wgap++;
-        if (wgap >= 2) { rows[gt[cx-1]][cx + (wgap >> 1)] = 'v'; placed++; }
+        if (wgap >= 4) {
+          // wide pits: inner columns vent (edges stay safe to stand over)
+          for (let j = 1; j < wgap - 1; j++) rows[gt[cx-1]][cx + j] = 'v';
+          placed++;
+        } else if (wgap >= 2) {
+          rows[gt[cx-1]][cx + (wgap >> 1)] = 'v';
+          placed++;
+        }
         cx += wgap;
       }
   } else if (turf === 1) {
