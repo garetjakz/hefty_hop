@@ -154,12 +154,8 @@ function generateLevel(n, rng) {
       if (gt[cx] === null && gt[cx-1] !== null) {
         let wgap = 0;
         while (cx + wgap < W && gt[cx + wgap] === null) wgap++;
-        if (wgap >= 4) {
-          // wide pits: inner columns vent (edges stay safe to stand over)
-          for (let j = 1; j < wgap - 1; j++) rows[gt[cx-1]][cx + j] = 'v';
-          placed++;
-        } else if (wgap >= 2) {
-          rows[gt[cx-1]][cx + (wgap >> 1)] = 'v';
+        if (wgap >= 2) {
+          for (let j = 0; j < wgap; j++) rows[gt[cx-1]][cx + j] = 'v';   // full fire trench
           placed++;
         }
         cx += wgap;
@@ -238,6 +234,19 @@ function parseLevel(rows) {
       else if (ch === 'w') saws.push({ x: px + 6, y: py + C.TILE - 20, w: 36, h: 20, vx: -55, vy: 0 });
       else if (ch === 'E') exit = { x: px, y: 0, w: C.TILE, h: (y + 1) * C.TILE, doorY: py - C.TILE };
     }
+  }
+  // ember flames must fit under the jump arc: short at gap edges (crossed low),
+  // tall mid-gap (crossed near apex) — a committed full jump always clears
+  embers.sort((a, b) => a.tx - b.tx);
+  const rise = x => x <= 145 ? 2.5 * x - 0.00702 * x * x
+                             : 223 - 0.01276 * (x - 145) * (x - 145);
+  let runStart = 0;
+  for (let i = 0; i < embers.length; i++) {
+    if (i === 0 || embers[i].tx !== embers[i - 1].tx + 1 || embers[i].top !== embers[i - 1].top)
+      runStart = i;
+    const j = i - runStart;
+    const x = (j + 0.5) * C.TILE + 10;
+    embers[i].peak = Math.max(34, Math.min(115, rise(x) - 26));
   }
   return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws,
            exit, w: rows[0].length, h: rows.length };
@@ -555,7 +564,7 @@ function step(g, input, dt) {
     // 0-0.7 warning glow, 0.7-2.2 ember up-and-down, then idle
     if (cyc > 0.7 && cyc < 2.2) {
       const k = (cyc - 0.7) / 1.5;                    // 0..1
-      const height = Math.sin(Math.PI * k) * 2.4 * C.TILE;   // peaks 2.4 tiles above edge
+      const height = Math.sin(Math.PI * k) * (em.peak || 2.4 * C.TILE);
       em.y = em.top * C.TILE - height + C.TILE * 0.5;
       em.active = height > 8;
       const box = { x: em.tx * C.TILE + 14, y: em.y - 16, w: 20, h: 32 };
