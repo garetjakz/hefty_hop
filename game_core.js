@@ -145,7 +145,9 @@ function generateLevel(n, rng) {
     if (!nearPitWide[cx] && rows[f.top-1][cx] === '.' && claim(cx, 1)) {
       rows[f.top-1][cx] = 'c'; k++;
       // from level 3, some cages get a Keeper standing guard beside them
-      if (n >= 3 && rng() < 0.5 && cx + 3 < W && rows[f.top-1][cx+3] === '.' && !nearPitWide[cx+3] && claim(cx+3, 2))
+      if (n >= 3 && rng() < 0.5 && cx + 4 < W && rows[f.top-1][cx+3] === '.' && !nearPitWide[cx+3] &&
+          rows[f.top][cx+3] === '#' && rows[f.top][cx+4] === '#' &&   // full footing: no corner toeholds
+          claim(cx+3, 2))
         rows[f.top-1][cx+3] = 'K';
     }
   }
