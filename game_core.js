@@ -664,8 +664,8 @@ function step(g, input, dt) {
       if (p.bumping) {
         k.alive = false; g.score += 300;
         g.events.push('keeperdie');
-      } else if (vyPre > 60) {
-        p.vy = C.STOMP_BOUNCE;                 // any falling contact boings off the big lug
+      } else if (vyPre > 60 && p.y + p.h <= k.y + k.h * 0.45) {
+        p.vy = C.STOMP_BOUNCE;                 // helmet/shoulders: boing — but only up top
         if (p.x + p.w / 2 < k.x) p.vx = -Math.abs(p.vx) - 60;
         else if (p.x + p.w / 2 > k.x + k.w) p.vx = Math.abs(p.vx) + 60;
         g.events.push('helmet');

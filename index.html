@@ -856,7 +856,8 @@ const fx = { flash: 0, livesFlash: 0, pop: null };
 function fxEvent(ev) {
   if (ev.startsWith('die:')) { fx.flash = 0.5; fx.livesFlash = 1.2; fx.pop = { text: '-1 LIFE', t: 1.1, color: '#ff4444' }; }
   else if (ev === 'shieldbreak') fx.pop = { text: 'SHIELD SAVED YOU!', t: 1.1, color: '#8affc1' };
-  else if (ev === 'power:hotchoc' || ev === '1up') { fx.livesFlash = 1.2; fx.pop = { text: '+1 LIFE!', t: 1.1, color: '#8affc1' }; }
+  else if (ev === 'power:hotchoc') { fx.livesFlash = 1.2; fx.pop = { text: 'HOT CHOCOLATE — +1 LIFE!', t: 1.2, color: '#8affc1' }; }
+  else if (ev === '1up') { fx.livesFlash = 1.2; fx.pop = { text: '50 PINS — EXTRA LIFE!', t: 1.4, color: '#8affc1' }; }
   else if (ev === 'bosshit') fx.pop = { text: 'BUMP! ' + (game.level.boss ? game.level.boss.hp : '') + ' TO GO', t: 0.9, color: '#ffc72c' };
   else if (ev === 'bossdie') { fx.flash = 0.5; fx.pop = { text: 'TIE CLUB RECLAIMED!', t: 2.2, color: '#8affc1' }; }
 }
