@@ -104,6 +104,7 @@ const KEY = { ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right
               x:'fire', X:'fire', k:'fire', K:'fire' };
 addEventListener('keydown', e => {
   if ((e.key === 'm' || e.key === 'M') && !(game.gameOver && hs.mode === 'entry')) { MUSIC.on = !MUSIC.on; return; }
+  if ((e.key === 'h' || e.key === 'H') && !(game.gameOver && hs.mode === 'entry')) { window.DEBUG_BOXES = !window.DEBUG_BOXES; return; }
   if (appMode === 'title') {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startGame(); }
     return;
@@ -859,6 +860,32 @@ function fxEvent(ev) {
   else if (ev === 'bosshit') fx.pop = { text: 'BUMP! ' + (game.level.boss ? game.level.boss.hp : '') + ' TO GO', t: 0.9, color: '#ffc72c' };
   else if (ev === 'bossdie') { fx.flash = 0.5; fx.pop = { text: 'TIE CLUB RECLAIMED!', t: 2.2, color: '#8affc1' }; }
 }
+function drawDebug() {
+  if (!window.DEBUG_BOXES) return;
+  ctx.lineWidth = 2; ctx.font = 'bold 11px Courier New';
+  function box(b, color, label) {
+    ctx.strokeStyle = color;
+    ctx.strokeRect(b.x - camX, b.y, b.w, b.h);
+    if (label) { ctx.fillStyle = color; ctx.fillText(label, b.x - camX, b.y - 4); }
+  }
+  box(game.player, '#00ff88', 'P y' + Math.round(game.player.y + game.player.h));
+  for (const e of game.level.enemies) if (e.alive) box(e, '#ff6666');
+  for (const k of game.level.keepers) if (k.alive) {
+    box(k, '#ffcc00', 'K grounded-tiles:');
+    const footY = Math.floor((k.y + k.h + 2) / T);
+    const l = Math.floor(k.x / T), r = Math.floor((k.x + k.w - 1) / T);
+    for (let tx = l; tx <= r; tx++) {
+      const ch = game.level.grid[footY] ? game.level.grid[footY][tx] : '?';
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillText(ch === '.' ? '·' : ch, tx * T - camX + 18, (footY + 1) * T - 6);
+      ctx.strokeStyle = 'rgba(255,204,0,0.5)';
+      ctx.strokeRect(tx * T - camX, footY * T, T, T);
+    }
+  }
+  for (const sw of game.level.saws) box(sw, '#cccccc');
+  if (game.level.boss && game.level.boss.alive) box(game.level.boss, '#ff4444', 'BOSS');
+  for (const c of game.level.cages) if (!c.broken) box({ x: c.tx*T, y: c.ty*T, w: T, h: T }, '#88bbff', 'cage');
+}
 function drawFx() {
   if (fx.flash > 0) {
     ctx.fillStyle = 'rgba(220,30,30,' + (fx.flash * 0.55).toFixed(3) + ')';
@@ -1100,7 +1127,7 @@ function frame(now) {
   MUSIC.key = (game.levelNum - 1) % 4;
   musicUpdate(!game.gameOver);
   cam();
-  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawPlayer(); drawHUD(); drawFx();
+  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawPlayer(); drawHUD(); drawDebug(); drawFx();
   if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
   else if (game.gameOver) {
     if (hs.mode === null) hsBegin();
