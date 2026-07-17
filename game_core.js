@@ -128,7 +128,12 @@ function generateLevel(n, rng) {
   for (let k = 0, tries = 0; k < nCages && tries < 60; tries++) {
     const f = pickFlat(); if (!f) break;
     const cx = f.start + 1 + Math.floor(rng() * Math.max(1, f.end - f.start - 1));
-    if (!nearPitWide[cx] && rows[f.top-1][cx] === '.' && claim(cx, 1)) { rows[f.top-1][cx] = 'c'; k++; }
+    if (!nearPitWide[cx] && rows[f.top-1][cx] === '.' && claim(cx, 1)) {
+      rows[f.top-1][cx] = 'c'; k++;
+      // from level 3, some cages get a Keeper standing guard beside them
+      if (n >= 3 && rng() < 0.5 && cx + 3 < W && rows[f.top-1][cx+3] === '.' && !nearPitWide[cx+3] && claim(cx+3, 2))
+        rows[f.top-1][cx+3] = 'K';
+    }
   }
   // grunts: 3 + n (cap 14), spaced, never near a pit edge (fair landings)
   const nEnemies = Math.min(10, 2 + n);
@@ -209,7 +214,7 @@ const LEVEL1 = [
 function parseLevel(rows) {
   const grid = [];
   const enemies = [], pins = [], cages = [], powerups = [], puSpots = [];
-  const embers = [], hearts = [], gates = [], saws = [];
+  const embers = [], hearts = [], gates = [], saws = [], keepers = [];
   let exit = null;
   for (let y = 0; y < rows.length; y++) {
     grid.push([]);
@@ -232,6 +237,7 @@ function parseLevel(rows) {
       else if (ch === 'B') hearts.push({ x: px + C.TILE/2, y: py + C.TILE/2, cd: 0 });
       else if (ch === 'G') gates.push({ tx: x, baseTy: y, phase: (x * 1.13) % 3.6, open: false });
       else if (ch === 'w') saws.push({ x: px + 6, y: py + C.TILE - 20, w: 36, h: 20, vx: -55, vy: 0 });
+      else if (ch === 'K') keepers.push({ x: px + 2, y: py + C.TILE - 62, w: 44, h: 62, vx: 0, vy: 0, alive: true, t: 0 });
       else if (ch === 'E') exit = { x: px, y: 0, w: C.TILE, h: (y + 1) * C.TILE, doorY: py - C.TILE };
     }
   }
@@ -248,7 +254,7 @@ function parseLevel(rows) {
     const x = (j + 0.5) * C.TILE + 10;
     embers[i].peak = Math.max(34, Math.min(115, rise(x) - 26));
   }
-  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws,
+  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws, keepers,
            exit, w: rows[0].length, h: rows.length };
 }
 
@@ -372,7 +378,7 @@ function damagePlayer(g, fromX) {
 function respawn(g) {
   const p = g.player;
   p.x = g.checkpointX; p.y = g.checkpointY;
-  p.vx = 0; p.vy = 0; p.hits = 0; p.inv = 1.5; p.bumping = false;
+  p.vx = 0; p.vy = 0; p.hits = 0; p.inv = 2.5; p.bumping = false;
   p.weapon = null; p.ammo = 0; p.shield = false;
 }
 
@@ -592,6 +598,29 @@ function step(g, input, dt) {
       if (!solidAt(L, ntx, ty2) && !oneWayAt(L, ntx, ty2)) sw.vx = -sw.vx;
     }
     if (overlap(p, sw)) damagePlayer(g, sw.x + sw.w / 2);   // no stomping a sawblade
+  }
+
+  // cage keepers
+  for (const k of L.keepers) {
+    if (!k.alive) continue;
+    k.t += dt;
+    k.vy = Math.min(k.vy + C.GRAV * dt, 1200);
+    moveAndCollide(L, k, dt, false);
+    if (overlap(p, k)) {
+      if (p.bumping) {
+        k.alive = false; g.score += 300;
+        g.events.push('keeperdie');
+      } else if (vyPre > 60) {
+        p.vy = C.STOMP_BOUNCE;                 // any falling contact boings off the big lug
+        if (p.x + p.w / 2 < k.x) p.vx = -Math.abs(p.vx) - 60;
+        else if (p.x + p.w / 2 > k.x + k.w) p.vx = Math.abs(p.vx) + 60;
+        g.events.push('helmet');
+      } else if (vyPre < -50) {
+        // rising / mid-boing: harmless brush while separating
+      } else {
+        damagePlayer(g, k.x + k.w / 2);
+      }
+    }
   }
 
   // pins
