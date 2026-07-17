@@ -171,7 +171,8 @@ function generateLevel(n, rng) {
       const f = pickFlat(); if (!f) break;
       if (f.end - f.start < 6) continue;
       const cx = f.start + 2 + Math.floor(rng() * Math.max(1, f.end - f.start - 3));
-      if (!nearPitWide[cx] && rows[f.top-2][cx] === '.' && claim(cx, 2)) { rows[f.top-2][cx] = 'B'; k++; }
+      const pinClear = rows[f.top-1][cx-1] !== 'o' && rows[f.top-1][cx] !== 'o' && rows[f.top-1][cx+1] !== 'o';
+      if (!nearPitWide[cx] && pinClear && rows[f.top-2][cx] === '.' && claim(cx, 2)) { rows[f.top-2][cx] = 'B'; k++; }
     }
   } else if (turf === 2) {
     // Clockwork Row: timed gates blocking the path
@@ -320,7 +321,7 @@ function solidAt(level, tx, ty) {
     if (!c.broken && c.tx === tx && c.ty === ty) return true;
   // closed clockwork gates block a 3-tile column
   for (const gte of (level.gates || []))
-    if (!gte.open && tx === gte.tx && ty <= gte.baseTy && ty >= gte.baseTy - 4) return true;
+    if (!gte.open && tx === gte.tx && ty <= gte.baseTy) return true;   // full column, sky to floor
   return false;
 }
 
