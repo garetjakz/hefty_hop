@@ -75,11 +75,14 @@ const BGS = ['hell','party','time','construction','coffee_warehouse','starry_nig
              'bike_track','crocodile','sport','graduate','life_saver'];
 const bgCache = {};
 function bgImg(n) {
-  const slug = BGS[(n - 1) % BGS.length];
+  const slug = (n % 21 === 0) ? 'hell' : BGS[(n - 1) % BGS.length];
   if (!bgCache[slug]) { const im = new Image(); im.src = 'assets/bg/' + slug + '.png'; bgCache[slug] = im; }
   return bgCache[slug];
 }
-function levelName() { return TURFS[(game.levelNum - 1) % 4] + ' ' + Math.ceil(game.levelNum / 4) + '-' + (((game.levelNum - 1) % 4) + 1); }
+function levelName() {
+  if (game.levelNum % 21 === 0) return 'THE TIE CLUB';
+  return TURFS[(game.levelNum - 1) % 4] + ' ' + Math.ceil(game.levelNum / 4) + '-' + (((game.levelNum - 1) % 4) + 1);
+}
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
@@ -87,7 +90,8 @@ ctx.imageSmoothingEnabled = false;
 const IMG = {};
 const FILES = { heroIdle:'hero_idle.png', heroWalk:'hero_walk.png', heroJump:'hero_jump.png',
                 enIdle:'enemy_idle.png', enWalk:'enemy_walk.png', coin:'collectible_coin.png',
-                keepIdle:'keeper_idle.png', keepWalk:'keeper_walk.png' };
+                keepIdle:'keeper_idle.png', keepWalk:'keeper_walk.png',
+                bossIdle:'boss_6666_idle.png', bossWalk:'boss_6666_walk.png', bossJump:'boss_6666_jump.png' };
 let loaded = 0, total = Object.keys(FILES).length;
 for (const k in FILES) { IMG[k] = new Image(); IMG[k].onload = () => loaded++; IMG[k].src = 'assets/' + FILES[k]; }
 IMG.cageHippo = new Image(); IMG.cageHippo.src = 'assets/hero_idle.png';
@@ -526,6 +530,49 @@ function drawEnemies() {
     } else { ctx.fillStyle = '#e6286e'; ctx.fillRect(px, e.y, e.w, e.h); }
   }
 }
+function drawBoss() {
+  const B = game.level.boss;
+  if (!B) return;
+  if (B.alive) {
+    const px = B.x - camX;
+    const dw = 140, dh = 133, dx = px + B.w/2 - dw/2, dy = B.y + B.h - dh + 2;
+    const flash = B.inv > 0 && Math.floor(performance.now()/80) % 2;
+    if (loaded === total && !flash) {
+      const flip = game.player.x < B.x;
+      if (B.vy !== 0) sheetFrame(IMG.bossJump, 0, 420, dx, dy, dw, dh, flip);
+      else if (Math.abs(B.vx) > 5) sheetFrame(IMG.bossWalk, Math.floor(B.t*8) % 6, 420, dx, dy, dw, dh, flip);
+      else sheetFrame(IMG.bossIdle, Math.floor(B.t*2) % 2, 420, dx, dy, dw, dh, flip);
+    }
+    // health bar
+    ctx.fillStyle = 'rgba(20,5,31,0.7)'; ctx.fillRect(cv.width/2 - 160, 44, 320, 22);
+    ctx.fillStyle = '#5a0e2e'; ctx.fillRect(cv.width/2 - 156, 48, 312, 14);
+    ctx.fillStyle = B.phase === 3 ? '#ff4444' : '#e6286e';
+    ctx.fillRect(cv.width/2 - 156, 48, 312 * (B.hp / B.maxHp), 14);
+    ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 13px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('DEVIL HIPPO #6666', cv.width/2, 40);
+    ctx.textAlign = 'left';
+    // intro banner
+    if (game.t < 3) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(20,5,31,0.6)'; ctx.fillRect(0, 180, cv.width, 130);
+      ctx.fillStyle = '#ff4444'; ctx.font = 'bold 44px Courier New';
+      ctx.fillText('DEVIL HIPPO #6666', cv.width/2, 236);
+      ctx.fillStyle = '#c99df0'; ctx.font = 'bold 18px Courier New';
+      ctx.fillText('THE PLAIN JANES\' SECRET LEADER — BELLY BUMP HIM SIX TIMES', cv.width/2, 268);
+      ctx.fillText('HORNS ARE STOMP-PROOF. SHOTS ONLY STAGGER HIM.', cv.width/2, 292);
+      ctx.textAlign = 'left';
+    }
+  }
+  for (const bs of game.bossShots) {
+    if (!bs.alive) continue;
+    const px = bs.x - camX; if (px < -20 || px > cv.width + 20) continue;
+    const fl = Math.floor(performance.now()/60) % 2;
+    ctx.fillStyle = fl ? '#ff4444' : '#ff7a18';
+    ctx.beginPath(); ctx.arc(px, bs.y, 10, 0, 7); ctx.fill();
+    ctx.fillStyle = fl ? '#ffd82e' : '#ff4444';
+    ctx.beginPath(); ctx.arc(px, bs.y, 5, 0, 7); ctx.fill();
+  }
+}
 function drawPlayer() {
   const p = game.player;
   if (p.shield) {
@@ -654,6 +701,11 @@ const SFX = {
   helmet:         () => beep(1200, 500, 0.08, 'square', 0.09),
   keeperdie:      () => { beep(180, 60, 0.3, 'sawtooth', 0.11); setTimeout(() => beep(700, 1100, 0.15), 130); },
   keepermad:      () => { beep(150, 320, 0.25, 'sawtooth', 0.1); setTimeout(() => beep(150, 90, 0.2, 'sawtooth', 0.1), 150); },
+  bosshit:        () => { beep(120, 40, 0.35, 'sawtooth', 0.13); setTimeout(() => beep(500, 900, 0.12), 120); },
+  bossdie:        () => { [200,160,120,80,50].forEach((f, i) => setTimeout(() => beep(f, f*0.5, 0.3, 'sawtooth', 0.12), i*160)); },
+  bossshoot:      () => beep(300, 80, 0.25, 'sawtooth', 0.1),
+  bosshop:        () => beep(90, 45, 0.3, 'sine', 0.14),
+  bossstagger:    () => beep(600, 200, 0.1, 'triangle', 0.08),
   shieldbreak:    () => beep(500, 100, 0.3, 'sawtooth', 0.1),
   'die:pit':  () => beep(400, 60, 0.5, 'sawtooth', 0.1),
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
@@ -804,6 +856,8 @@ function fxEvent(ev) {
   if (ev.startsWith('die:')) { fx.flash = 0.5; fx.livesFlash = 1.2; fx.pop = { text: '-1 LIFE', t: 1.1, color: '#ff4444' }; }
   else if (ev === 'shieldbreak') fx.pop = { text: 'SHIELD SAVED YOU!', t: 1.1, color: '#8affc1' };
   else if (ev === 'power:hotchoc' || ev === '1up') { fx.livesFlash = 1.2; fx.pop = { text: '+1 LIFE!', t: 1.1, color: '#8affc1' }; }
+  else if (ev === 'bosshit') fx.pop = { text: 'BUMP! ' + (game.level.boss ? game.level.boss.hp : '') + ' TO GO', t: 0.9, color: '#ffc72c' };
+  else if (ev === 'bossdie') { fx.flash = 0.5; fx.pop = { text: 'TIE CLUB RECLAIMED!', t: 2.2, color: '#8affc1' }; }
 }
 function drawFx() {
   if (fx.flash > 0) {
@@ -1046,7 +1100,7 @@ function frame(now) {
   MUSIC.key = (game.levelNum - 1) % 4;
   musicUpdate(!game.gameOver);
   cam();
-  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawPlayer(); drawHUD(); drawFx();
+  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawPlayer(); drawHUD(); drawFx();
   if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
   else if (game.gameOver) {
     if (hs.mode === null) hsBegin();

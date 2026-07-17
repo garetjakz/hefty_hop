@@ -31,8 +31,22 @@ function makeRng(seed) {
 
 /* Procedural level: guaranteed completable by construction —
    gaps <= gapMax (jumpable) with flat landings, upward steps <= 2 tiles. */
+function generateBossArena() {
+  const W = 48, H = 12;
+  const rows = [];
+  for (let y = 0; y < H; y++) rows.push(new Array(W).fill('.'));
+  for (let x = 0; x < W; x++) { rows[10][x] = '#'; rows[11][x] = '#'; }
+  for (let y = 0; y < H; y++) { rows[y][0] = '#'; rows[y][W-1] = '#'; }   // arena walls
+  rows[9][32] = 'D';                       // Devil Hippo #6666
+  rows[9][44] = 'E';                       // door unlocks when he falls
+  rows[8][10] = '?'; rows[8][16] = '?';    // both power-up spots spawn
+  for (const c of [5, 6, 7]) rows[9][c] = 'o';
+  return rows.map(r => r.join(''));
+}
+
 function generateLevel(n, rng) {
   rng = rng || Math.random;
+  if (n % 21 === 0) return generateBossArena();
   const W = Math.min(220, 90 + n * 6), H = 12;
   const gt = new Array(W).fill(null);       // ground-top row per column (null = pit)
   const gapMax = Math.min(4, 2 + Math.floor(n / 3));
@@ -216,6 +230,7 @@ function parseLevel(rows) {
   const grid = [];
   const enemies = [], pins = [], cages = [], powerups = [], puSpots = [];
   const embers = [], hearts = [], gates = [], saws = [], keepers = [];
+  let boss = null;
   let exit = null;
   for (let y = 0; y < rows.length; y++) {
     grid.push([]);
@@ -239,6 +254,8 @@ function parseLevel(rows) {
       else if (ch === 'G') gates.push({ tx: x, baseTy: y, phase: (x * 1.13) % 3.6, open: false });
       else if (ch === 'w') saws.push({ x: px + 6, y: py + C.TILE - 20, w: 36, h: 20, vx: -55, vy: 0 });
       else if (ch === 'K') keepers.push({ x: px - 2, y: py + C.TILE - 76, w: 52, h: 76, vx: 0, vy: 0, alive: true, t: 0 });
+      else if (ch === 'D') boss = { x: px - 24, y: py + C.TILE - 118, w: 92, h: 118, vx: 0, vy: 0,
+                                    hp: 6, maxHp: 6, inv: 0, stun: 0, shotT: 0, hopT: 0, alive: true, t: 0 };
       else if (ch === 'E') exit = { x: px, y: 0, w: C.TILE, h: (y + 1) * C.TILE, doorY: py - C.TILE };
     }
   }
@@ -255,7 +272,7 @@ function parseLevel(rows) {
     const x = (j + 0.5) * C.TILE + 10;
     embers[i].peak = Math.max(34, Math.min(115, rise(x) - 26));
   }
-  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws, keepers,
+  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws, keepers, boss,
            exit, w: rows[0].length, h: rows.length };
 }
 
@@ -298,6 +315,7 @@ function createGame(levelRows, rng, levelNum) {
     events: [],           // one-frame event strings for sfx/fx
     prevJump: false, prevFire: false,
     shots: [],
+    bossShots: [],
   };
 }
 
@@ -648,6 +666,84 @@ function step(g, input, dt) {
     }
   }
 
+  // ---- Devil Hippo #6666 -------------------------------------------
+  const B = L.boss;
+  if (B && B.alive) {
+    B.t += dt;
+    B.inv = Math.max(0, B.inv - dt);
+    B.stun = Math.max(0, B.stun - dt);
+    const phase = B.hp > 4 ? 1 : B.hp > 2 ? 2 : 3;
+    B.phase = phase;
+    if (B.stun <= 0) {
+      const spd = [0, 60, 85, 120][phase];
+      B.vx = (p.x + p.w / 2 < B.x + B.w / 2 ? -1 : 1) * spd;
+      if (phase === 3) {                                   // enraged hops
+        B.hopT += dt;
+        if (B.hopT > 2.6 && B.vy === 0) { B.vy = -620; B.hopT = 0; g.events.push('bosshop'); }
+      }
+      if (phase >= 2) {                                    // fire-nose volleys
+        B.shotT += dt;
+        const period = phase === 3 ? 1.5 : 2.3;
+        if (B.shotT > period) {
+          B.shotT = 0;
+          const dir = p.x < B.x ? -1 : 1;
+          const n2 = phase === 3 ? 2 : 1;
+          for (let i = 0; i < n2; i++)
+            g.bossShots.push({ x: B.x + B.w / 2, y: B.y + 30, vx: dir * (220 + i * 90),
+                               vy: -260 - i * 60, alive: true, t: 0 });
+          g.events.push('bossshoot');
+        }
+      }
+    } else B.vx = 0;
+    B.vy = Math.min(B.vy + C.GRAV * dt, 1200);
+    const bvx = B.vx;
+    const br = moveAndCollide(L, B, dt, false);
+    if (br.landed) B.vy = 0;
+    if (overlap(p, B)) {
+      if (p.bumping && B.inv <= 0) {
+        B.hp--; B.inv = 1.0; B.stun = 0.7;
+        p.vy = C.BUMP_BOUNCE; p.grounded = false; p.bumping = false;
+        g.score += 500;
+        g.events.push('bosshit');
+        if (B.hp <= 0) {
+          B.alive = false; g.score += 5000;
+          g.events.push('bossdie');
+        }
+      } else if (vyPre > 60) {
+        p.vy = C.STOMP_BOUNCE;                             // horns: you boing, he doesn't care
+        if (p.x + p.w / 2 < B.x) p.vx = -Math.abs(p.vx) - 80;
+        else if (p.x + p.w / 2 > B.x + B.w) p.vx = Math.abs(p.vx) + 80;
+        g.events.push('helmet');
+      } else if (vyPre < -50) {
+        // rising: harmless brush
+      } else if (B.inv <= 0) {
+        damagePlayer(g, B.x + B.w / 2);
+      }
+    }
+    // player shots stagger him
+    for (const sh of g.shots) {
+      if (!sh.alive) continue;
+      if (sh.x > B.x && sh.x < B.x + B.w && sh.y > B.y && sh.y < B.y + B.h) {
+        sh.alive = false; B.stun = Math.max(B.stun, 0.45);
+        g.events.push('bossstagger');
+      }
+    }
+  }
+  // boss fireballs
+  for (const bs of g.bossShots) {
+    if (!bs.alive) continue;
+    bs.t += dt;
+    bs.vy += 900 * dt;
+    bs.x += bs.vx * dt; bs.y += bs.vy * dt;
+    const btx = Math.floor(bs.x / C.TILE), bty = Math.floor(bs.y / C.TILE);
+    if (bs.t > 4 || solidAt(L, btx, bty)) { bs.alive = false; continue; }
+    if (overlap(p, { x: bs.x - 9, y: bs.y - 9, w: 18, h: 18 })) {
+      bs.alive = false;
+      damagePlayer(g, bs.x);
+    }
+  }
+  if (g.bossShots.length > 30) g.bossShots = g.bossShots.filter(b2 => b2.alive);
+
   // pins
   const pr = { x: p.x - 6, y: p.y - 6, w: p.w + 12, h: p.h + 12 };
   for (const pin of L.pins) {
@@ -670,7 +766,7 @@ function step(g, input, dt) {
   if (p.y > L.h * C.TILE + 60) loseLife(g, 'pit');
 
   // exit
-  if (L.exit && overlap(p, L.exit)) {
+  if (L.exit && (!L.boss || !L.boss.alive) && overlap(p, L.exit)) {
     g.won = true; g.score += 500 + g.levelNum * 500;
     g.events.push('win');
   }
