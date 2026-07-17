@@ -261,6 +261,14 @@ function parseLevel(rows) {
 function createGame(levelRows, rng, levelNum) {
   rng = rng || Math.random;
   const level = parseLevel(levelRows || LEVEL1);
+  for (const k of level.keepers) {           // each keeper guards its nearest cage
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < level.cages.length; i++) {
+      const d = Math.abs(level.cages[i].tx * C.TILE - k.x);
+      if (d < bd) { bd = d; best = i; }
+    }
+    k.cage = bd < 6 * C.TILE ? best : -1;
+  }
   const spd = C.ENEMY_SPEED * Math.min(2, 1 + ((levelNum || 1) - 1) * 0.06);
   for (const e of level.enemies) { e.speed = spd; e.vx = -spd; }
   if (level.puSpots.length >= 2) {
@@ -604,8 +612,24 @@ function step(g, input, dt) {
   for (const k of L.keepers) {
     if (!k.alive) continue;
     k.t += dt;
+    if (!k.enraged && k.cage >= 0 && L.cages[k.cage] && L.cages[k.cage].broken) {
+      k.enraged = true;
+      k.vx = p.x < k.x ? -45 : 45;             // comes looking for you
+      g.events.push('keepermad');
+    }
     k.vy = Math.min(k.vy + C.GRAV * dt, 1200);
-    moveAndCollide(L, k, dt, false);
+    const kvx = k.vx;
+    const kr = moveAndCollide(L, k, dt, false);
+    if (k.enraged) {
+      if (kr.hitWall) k.vx = kvx >= 0 ? -45 : 45;
+      if (k.vx === 0) k.vx = -45;
+      if (kr.landed) {
+        const dir = k.vx > 0 ? 1 : -1;
+        const ty2 = Math.floor((k.y + k.h + 2) / C.TILE);
+        const ntx = Math.floor((dir > 0 ? k.x + k.w + 2 : k.x - 2) / C.TILE);
+        if (!solidAt(L, ntx, ty2) && !oneWayAt(L, ntx, ty2)) k.vx = -k.vx;
+      }
+    }
     if (overlap(p, k)) {
       if (p.bumping) {
         k.alive = false; g.score += 300;

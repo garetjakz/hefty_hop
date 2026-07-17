@@ -87,7 +87,7 @@ ctx.imageSmoothingEnabled = false;
 const IMG = {};
 const FILES = { heroIdle:'hero_idle.png', heroWalk:'hero_walk.png', heroJump:'hero_jump.png',
                 enIdle:'enemy_idle.png', enWalk:'enemy_walk.png', coin:'collectible_coin.png',
-                keepIdle:'keeper_idle.png' };
+                keepIdle:'keeper_idle.png', keepWalk:'keeper_walk.png' };
 let loaded = 0, total = Object.keys(FILES).length;
 for (const k in FILES) { IMG[k] = new Image(); IMG[k].onload = () => loaded++; IMG[k].src = 'assets/' + FILES[k]; }
 IMG.cageHippo = new Image(); IMG.cageHippo.src = 'assets/hero_idle.png';
@@ -505,7 +505,10 @@ function drawKeepers() {
     const px = k.x - camX; if (px < -100 || px > cv.width + 100) continue;
     const dw = 84, dh = 80, dx = px + k.w/2 - dw/2, dy = k.y + k.h - dh + 2;
     if (loaded === total) {
-      sheetFrame(IMG.keepIdle, Math.floor(k.t * 2) % 2, 420, dx, dy, dw, dh, false);
+      if (k.enraged && Math.abs(k.vx) > 5)
+        sheetFrame(IMG.keepWalk, Math.floor(k.t * 8) % 6, 420, dx, dy, dw, dh, k.vx < 0);
+      else
+        sheetFrame(IMG.keepIdle, Math.floor(k.t * 2) % 2, 420, dx, dy, dw, dh, false);
     } else { ctx.fillStyle = '#555'; ctx.fillRect(px, k.y, k.w, k.h); }
   }
 }
@@ -650,6 +653,7 @@ const SFX = {
   heartbounce:    () => { beep(220, 880, 0.22, 'sine', 0.12); },
   helmet:         () => beep(1200, 500, 0.08, 'square', 0.09),
   keeperdie:      () => { beep(180, 60, 0.3, 'sawtooth', 0.11); setTimeout(() => beep(700, 1100, 0.15), 130); },
+  keepermad:      () => { beep(150, 320, 0.25, 'sawtooth', 0.1); setTimeout(() => beep(150, 90, 0.2, 'sawtooth', 0.1), 150); },
   shieldbreak:    () => beep(500, 100, 0.3, 'sawtooth', 0.1),
   'die:pit':  () => beep(400, 60, 0.5, 'sawtooth', 0.1),
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
