@@ -676,14 +676,21 @@ function step(g, input, dt) {
     B.phase = phase;
     if (B.stun <= 0) {
       const spd = [0, 60, 85, 120][phase];
-      B.vx = (p.x + p.w / 2 < B.x + B.w / 2 ? -1 : 1) * spd;
+      const pcx = p.x + p.w / 2, bcx = B.x + B.w / 2;
+      const overhead = !p.grounded && Math.abs(pcx - bcx) < B.w * 0.7 && p.y + p.h < B.y + 20;
+      if (overhead && phase >= 2) {
+        B.vx = (B.dodgeDir || 1) * spd * 2.6;              // slip out from under
+      } else {
+        B.vx = (pcx < bcx ? -1 : 1) * spd;
+        B.dodgeDir = pcx < bcx ? 1 : -1;                   // dodge away from player side
+      }
       if (phase === 3) {                                   // enraged hops
         B.hopT += dt;
         if (B.hopT > 2.6 && B.vy === 0) { B.vy = -620; B.hopT = 0; g.events.push('bosshop'); }
       }
       if (phase >= 2) {                                    // fire-nose volleys
         B.shotT += dt;
-        const period = phase === 3 ? 1.5 : 2.3;
+        const period = phase === 3 ? 1.2 : 2.0;
         if (B.shotT > period) {
           B.shotT = 0;
           const dir = p.x < B.x ? -1 : 1;
@@ -701,7 +708,7 @@ function step(g, input, dt) {
     if (br.landed) B.vy = 0;
     if (overlap(p, B)) {
       if (p.bumping && B.inv <= 0) {
-        B.hp--; B.inv = 1.0; B.stun = 0.7;
+        B.hp--; B.inv = 1.4; B.stun = 0.7;
         p.vy = C.BUMP_BOUNCE; p.grounded = false; p.bumping = false;
         g.score += 500;
         g.events.push('bosshit');
@@ -710,9 +717,8 @@ function step(g, input, dt) {
           g.events.push('bossdie');
         }
       } else if (vyPre > 60) {
-        p.vy = C.STOMP_BOUNCE;                             // horns: you boing, he doesn't care
-        if (p.x + p.w / 2 < B.x) p.vx = -Math.abs(p.vx) - 80;
-        else if (p.x + p.w / 2 > B.x + B.w) p.vx = Math.abs(p.vx) + 80;
+        p.vy = C.STOMP_BOUNCE;                             // horns launch you AWAY, hard
+        p.vx = (p.x + p.w / 2 < B.x + B.w / 2 ? -1 : 1) * 420;
         g.events.push('helmet');
       } else if (vyPre < -50) {
         // rising: harmless brush
