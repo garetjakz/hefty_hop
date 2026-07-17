@@ -329,7 +329,7 @@ function spawnPlayer() {
   };
 }
 
-function solidAt(level, tx, ty) {
+function solidAt(level, tx, ty, noGate) {
   if (tx < 0 || tx >= level.w) return true;       // side walls
   if (ty < 0) return false;
   if (ty >= level.h) return false;                 // open pits
@@ -337,9 +337,10 @@ function solidAt(level, tx, ty) {
   // unbroken cages are solid
   for (const c of level.cages)
     if (!c.broken && c.tx === tx && c.ty === ty) return true;
-  // closed clockwork gates block a 3-tile column
-  for (const gte of (level.gates || []))
-    if (!gte.open && tx === gte.tx && ty <= gte.baseTy) return true;   // full column, sky to floor
+  // closed clockwork gates block horizontally but are never a floor/ceiling
+  if (!noGate)
+    for (const gte of (level.gates || []))
+      if (!gte.open && tx === gte.tx && ty <= gte.baseTy) return true;
   return false;
 }
 
@@ -373,14 +374,14 @@ function moveAndCollide(level, b, dt, dropThrough) {
     if (b.vy > 0) {
       const ty = Math.floor((b.y + b.h) / T);
       for (let tx = left; tx <= right; tx++) {
-        const solid = solidAt(level, tx, ty);
+        const solid = solidAt(level, tx, ty, true);
         const oneway = !dropThrough && oneWayAt(level, tx, ty) && prevBottom <= ty * T + 1;
         if (solid || oneway) { b.y = ty * T - b.h - 0.01; b.vy = 0; landed = true; break; }
       }
     } else if (b.vy < 0) {
       const ty = Math.floor(b.y / T);
       for (let tx = left; tx <= right; tx++)
-        if (solidAt(level, tx, ty)) { b.y = (ty + 1) * T + 0.01; b.vy = 0; hitCeil = true; break; }
+        if (solidAt(level, tx, ty, true)) { b.y = (ty + 1) * T + 0.01; b.vy = 0; hitCeil = true; break; }
     }
   }
   return { hitWall, landed, hitCeil };
@@ -638,7 +639,7 @@ function step(g, input, dt) {
     }
     k.vy = Math.min(k.vy + C.GRAV * dt, 1200);
     const kvx = k.vx;
-    const kr = moveAndCollide(L, k, dt, false);
+    const kr = moveAndCollide(L, k, dt, true);   // too hefty for one-way platforms
     if (k.enraged) {
       if (kr.hitWall) k.vx = kvx >= 0 ? -45 : 45;
       if (k.vx === 0) k.vx = -45;
@@ -646,7 +647,7 @@ function step(g, input, dt) {
         const dir = k.vx > 0 ? 1 : -1;
         const ty2 = Math.floor((k.y + k.h + 2) / C.TILE);
         const ntx = Math.floor((dir > 0 ? k.x + k.w + 2 : k.x - 2) / C.TILE);
-        if (!solidAt(L, ntx, ty2) && !oneWayAt(L, ntx, ty2)) k.vx = -k.vx;
+        if (!solidAt(L, ntx, ty2)) k.vx = -k.vx;   // '=' is not footing for a keeper
       }
     }
     if (overlap(p, k)) {
