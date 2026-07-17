@@ -238,7 +238,7 @@ function parseLevel(rows) {
       else if (ch === 'B') hearts.push({ x: px + C.TILE/2, y: py + C.TILE/2, cd: 0 });
       else if (ch === 'G') gates.push({ tx: x, baseTy: y, phase: (x * 1.13) % 3.6, open: false });
       else if (ch === 'w') saws.push({ x: px + 6, y: py + C.TILE - 20, w: 36, h: 20, vx: -55, vy: 0 });
-      else if (ch === 'K') keepers.push({ x: px + 2, y: py + C.TILE - 62, w: 44, h: 62, vx: 0, vy: 0, alive: true, t: 0 });
+      else if (ch === 'K') keepers.push({ x: px - 2, y: py + C.TILE - 76, w: 52, h: 76, vx: 0, vy: 0, alive: true, t: 0 });
       else if (ch === 'E') exit = { x: px, y: 0, w: C.TILE, h: (y + 1) * C.TILE, doorY: py - C.TILE };
     }
   }

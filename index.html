@@ -503,7 +503,7 @@ function drawKeepers() {
   for (const k of game.level.keepers) {
     if (!k.alive) continue;
     const px = k.x - camX; if (px < -100 || px > cv.width + 100) continue;
-    const dw = 84, dh = 80, dx = px + k.w/2 - dw/2, dy = k.y + k.h - dh + 2;
+    const dw = 105, dh = 100, dx = px + k.w/2 - dw/2, dy = k.y + k.h - dh + 2;
     if (loaded === total) {
       if (k.enraged && Math.abs(k.vx) > 5)
         sheetFrame(IMG.keepWalk, Math.floor(k.t * 8) % 6, 420, dx, dy, dw, dh, k.vx < 0);
