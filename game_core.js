@@ -493,14 +493,22 @@ function step(g, input, dt) {
       // turn at the immediate ledge (never walk off)
       const ntx = Math.floor((dir > 0 ? e.x + e.w + 2 : e.x - 2) / C.TILE);
       let turn = !solidAt(L, ntx, ty) && !oneWayAt(L, ntx, ty);
-      // and turn 3 tiles before a true void (pit) — keeps landing zones clear
+      // and turn 3 tiles before a true void (pit) — keeps landing zones clear —
+      // but only if there's a real corridor behind; cramped plateaus patrol lip-to-lip
       if (!turn) {
         const ftx = Math.floor((dir > 0 ? e.x + e.w + C.TILE * 3 : e.x - C.TILE * 3) / C.TILE);
         if (!solidAt(L, ftx, ty) && !oneWayAt(L, ftx, ty)) {
           let isVoid = true;
           for (let yy = ty; yy < L.h; yy++)
             if (L.grid[yy] && L.grid[yy][ftx] === '#') { isVoid = false; break; }
-          if (isVoid) turn = true;
+          if (isVoid) {
+            let room = true;
+            for (let b2 = 1; b2 <= 2; b2++) {
+              const btx = Math.floor((dir > 0 ? e.x - b2 * C.TILE : e.x + e.w + b2 * C.TILE) / C.TILE);
+              if (!solidAt(L, btx, ty) && !oneWayAt(L, btx, ty)) { room = false; break; }
+            }
+            if (room) turn = true;
+          }
         }
       }
       if (turn) e.vx = -e.vx;
