@@ -494,30 +494,32 @@ function step(g, input, dt) {
     if (er.hitWall) e.vx = pvx >= 0 ? -sp : sp;
     if (e.vx === 0) e.vx = -sp;
     if (er.landed) {
-      const dir = e.vx > 0 ? 1 : -1;
+      // explicit patrol bounds: scan the walkable run once, inset 3-tile margins
+      // beside true voids only where they fit, lip-to-lip when cramped
       const ty = Math.floor((e.y + e.h + 2) / C.TILE);
-      // turn at the immediate ledge (never walk off)
-      const ntx = Math.floor((dir > 0 ? e.x + e.w + 2 : e.x - 2) / C.TILE);
-      let turn = !solidAt(L, ntx, ty) && !oneWayAt(L, ntx, ty);
-      // and turn 3 tiles before a true void (pit) — keeps landing zones clear —
-      // but only if there's a real corridor behind; cramped plateaus patrol lip-to-lip
-      if (!turn) {
-        const ftx = Math.floor((dir > 0 ? e.x + e.w + C.TILE * 3 : e.x - C.TILE * 3) / C.TILE);
-        if (!solidAt(L, ftx, ty) && !oneWayAt(L, ftx, ty)) {
-          let isVoid = true;
-          for (let yy = ty; yy < L.h; yy++)
-            if (L.grid[yy] && L.grid[yy][ftx] === '#') { isVoid = false; break; }
-          if (isVoid) {
-            let room = true;
-            for (let b2 = 1; b2 <= 2; b2++) {
-              const btx = Math.floor((dir > 0 ? e.x - b2 * C.TILE : e.x + e.w + b2 * C.TILE) / C.TILE);
-              if (!solidAt(L, btx, ty) && !oneWayAt(L, btx, ty)) { room = false; break; }
-            }
-            if (room) turn = true;
-          }
-        }
+      const col = Math.floor((e.x + e.w / 2) / C.TILE);
+      const footing = c2 => solidAt(L, c2, ty) || oneWayAt(L, c2, ty);
+      const voidBelow = c2 => {
+        for (let yy = ty; yy < L.h; yy++)
+          if (L.grid[yy] && L.grid[yy][c2] === '#') return false;
+        return true;
+      };
+      if (e._runTy !== ty || col < e._lC || col > e._rC) {   // (re)scan when run changes
+        let lC = col, rC = col;
+        while (lC > col - 40 && footing(lC - 1)) lC--;
+        while (rC < col + 40 && footing(rC + 1)) rC++;
+        let minC = lC + (voidBelow(lC - 1) ? 3 : 0);
+        let maxC = rC - (voidBelow(rC + 1) ? 3 : 0);
+        if (maxC - minC < 2) { minC = lC; maxC = rC; }
+        e._lC = lC; e._rC = rC; e._minC = minC; e._maxC = maxC; e._runTy = ty;
       }
-      if (turn) e.vx = -e.vx;
+      const sp2 = e.speed || C.ENEMY_SPEED;
+      if (e.vx < 0 && e.x <= e._minC * C.TILE + 2) e.vx = sp2;
+      else if (e.vx > 0 && e.x + e.w >= (e._maxC + 1) * C.TILE - 2) e.vx = -sp2;
+      // absolute safety: never walk off the immediate lip
+      const dir = e.vx > 0 ? 1 : -1;
+      const ntx = Math.floor((dir > 0 ? e.x + e.w + 2 : e.x - 2) / C.TILE);
+      if (!footing(ntx)) e.vx = -e.vx;
     }
     // player interaction
     if (overlap(p, e)) {
