@@ -46,9 +46,25 @@ function generateBossArena() {
   return rows.map(r => r.join(''));
 }
 
+function generateJaneArena() {
+  const W = 44, H = 12;
+  const rows = [];
+  for (let y = 0; y < H; y++) rows.push(new Array(W).fill('.'));
+  for (let x = 0; x < W; x++) { rows[10][x] = '#'; rows[11][x] = '#'; }
+  for (let y = 0; y < H; y++) { rows[y][0] = '#'; rows[y][W-1] = '#'; }
+  rows[9][28] = 'J';                       // Plain Jane
+  rows[9][40] = 'E';
+  for (let wx = 41; wx < W; wx++)
+    for (let y = 0; y < H; y++) rows[y][wx] = '#';
+  rows[8][8] = '?'; rows[8][14] = '?';
+  for (const c of [4, 5, 6]) rows[9][c] = 'o';
+  return rows.map(r => r.join(''));
+}
+
 function generateLevel(n, rng) {
   rng = rng || Math.random;
   if (n % 21 === 0) return generateBossArena();
+  if (n % 21 === 12) return generateJaneArena();
   const W = Math.min(220, 90 + n * 6), H = 12;
   const gt = new Array(W).fill(null);       // ground-top row per column (null = pit)
   const gapMax = Math.min(4, 2 + Math.floor(n / 3));
@@ -236,7 +252,7 @@ function parseLevel(rows) {
   const grid = [];
   const enemies = [], pins = [], cages = [], powerups = [], puSpots = [];
   const embers = [], hearts = [], gates = [], saws = [], keepers = [];
-  let boss = null;
+  let boss = null, jane = null;
   let exit = null;
   for (let y = 0; y < rows.length; y++) {
     grid.push([]);
@@ -262,6 +278,9 @@ function parseLevel(rows) {
       else if (ch === 'K') keepers.push({ x: px - 2, y: py + C.TILE - 76, w: 52, h: 76, vx: 0, vy: 0, alive: true, t: 0 });
       else if (ch === 'D') boss = { x: px - 24, y: py + C.TILE - 118, w: 92, h: 118, vx: 0, vy: 0,
                                     hp: 6, maxHp: 6, inv: 0, stun: 0, shotT: 0, hopT: 0, alive: true, t: 0 };
+      else if (ch === 'J') jane = { x: px - 6, y: py + C.TILE - 90, w: 60, h: 90, vx: 0, vy: 0,
+                                    hp: 4, maxHp: 4, inv: 0, stun: 0, beam: 'idle', beamT: 0, dir: -1,
+                                    alive: true, t: 0 };
       else if (ch === 'E') exit = { x: px, y: py - C.TILE, w: C.TILE, h: C.TILE * 2, doorY: py - C.TILE };
     }
   }
@@ -278,7 +297,7 @@ function parseLevel(rows) {
     const x = (j + 0.5) * C.TILE + 10;
     embers[i].peak = Math.max(34, Math.min(115, rise(x) - 26));
   }
-  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws, keepers, boss,
+  return { grid, enemies, pins, cages, powerups, puSpots, embers, hearts, gates, saws, keepers, boss, jane,
            exit, w: rows[0].length, h: rows.length };
 }
 
@@ -767,6 +786,66 @@ function step(g, input, dt) {
   }
   if (g.bossShots.length > 30) g.bossShots = g.bossShots.filter(b2 => b2.alive);
 
+  // ---- Plain Jane -----------------------------------------------------
+  const J = L.jane;
+  if (J && J.alive) {
+    J.t += dt;
+    J.inv = Math.max(0, J.inv - dt);
+    J.stun = Math.max(0, J.stun - dt);
+    J.beamT += dt;
+    const period = J.hp > 2 ? 4.0 : 2.6;
+    if (J.stun > 0 && J.beam !== 'idle') { J.beam = 'idle'; J.beamT = 0; }   // stagger cancels the stare
+    if (J.beam === 'idle') {
+      if (J.stun <= 0) {
+        J.vx = (p.x + p.w / 2 < J.x + J.w / 2 ? -1 : 1) * (J.hp > 2 ? 55 : 80);
+        J.dir = J.vx < 0 ? -1 : 1;
+        if (J.beamT > period) { J.beam = 'charge'; J.beamT = 0; J.vx = 0; g.events.push('janecharge'); }
+      } else J.vx = 0;
+    } else if (J.beam === 'charge') {
+      J.vx = 0;
+      if (J.beamT > 0.8) { J.beam = 'fire'; J.beamT = 0; g.events.push('janebeam'); }
+    } else if (J.beam === 'fire') {
+      J.vx = 0;
+      const by = J.y + J.h * 0.55;
+      const bx0 = J.dir > 0 ? J.x + J.w : 0;
+      const bx1 = J.dir > 0 ? L.w * C.TILE : J.x;
+      if (overlap(p, { x: bx0, y: by - 14, w: bx1 - bx0, h: 28 })) damagePlayer(g, J.x + J.w / 2);
+      if (J.beamT > 0.55) { J.beam = 'recover'; J.beamT = 0; }
+    } else if (J.beam === 'recover') {
+      J.vx = 0;
+      if (J.beamT > 1.3) { J.beam = 'idle'; J.beamT = 0; }
+    }
+    J.vy = Math.min(J.vy + C.GRAV * dt, 1200);
+    moveAndCollide(L, J, dt, false);
+    if (overlap(p, J)) {
+      if (p.bumping && J.inv <= 0) {
+        J.hp--; J.inv = 1.2; J.stun = 0.7;
+        p.vy = C.BUMP_BOUNCE; p.grounded = false; p.bumping = false;
+        g.score += 400;
+        g.events.push('janehit');
+        if (J.hp <= 0) {
+          J.alive = false; g.score += 3000;
+          g.events.push('janedie');
+        }
+      } else if (vyPre > 60 && p.y + p.h <= J.y + J.h * 0.45) {
+        p.vy = C.STOMP_BOUNCE;
+        p.vx = (p.x + p.w / 2 < J.x + J.w / 2 ? -1 : 1) * 380;
+        g.events.push('helmet');
+      } else if (vyPre < -50) {
+        // rising brush
+      } else if (J.inv <= 0) {
+        damagePlayer(g, J.x + J.w / 2);
+      }
+    }
+    for (const sh of g.shots) {
+      if (!sh.alive) continue;
+      if (sh.x > J.x && sh.x < J.x + J.w && sh.y > J.y && sh.y < J.y + J.h) {
+        sh.alive = false; J.stun = Math.max(J.stun, 0.5);
+        g.events.push('bossstagger');
+      }
+    }
+  }
+
   // pins
   const pr = { x: p.x - 6, y: p.y - 6, w: p.w + 12, h: p.h + 12 };
   for (const pin of L.pins) {
@@ -789,7 +868,7 @@ function step(g, input, dt) {
   if (p.y > L.h * C.TILE + 60) loseLife(g, 'pit');
 
   // exit
-  if (L.exit && (!L.boss || !L.boss.alive) && overlap(p, L.exit)) {
+  if (L.exit && (!L.boss || !L.boss.alive) && (!L.jane || !L.jane.alive) && overlap(p, L.exit)) {
     g.won = true; g.score += 500 + g.levelNum * 500;
     g.events.push('win');
   }

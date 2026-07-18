@@ -75,12 +75,13 @@ const BGS = ['hell','party','time','construction','coffee_warehouse','starry_nig
              'bike_track','crocodile','sport','graduate','life_saver'];
 const bgCache = {};
 function bgImg(n) {
-  const slug = (n % 21 === 0) ? 'hell' : BGS[(n - 1) % BGS.length];
+  const slug = (n % 21 === 0) ? 'hell' : (n % 21 === 12) ? 'jail' : BGS[(n - 1) % BGS.length];
   if (!bgCache[slug]) { const im = new Image(); im.src = 'assets/bg/' + slug + '.png'; bgCache[slug] = im; }
   return bgCache[slug];
 }
 function levelName() {
   if (game.levelNum % 21 === 0) return 'THE TIE CLUB';
+  if (game.levelNum % 21 === 12) return 'JANE\'S JAILYARD';
   return TURFS[(game.levelNum - 1) % 4] + ' ' + Math.ceil(game.levelNum / 4) + '-' + (((game.levelNum - 1) % 4) + 1);
 }
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
@@ -91,7 +92,8 @@ const IMG = {};
 const FILES = { heroIdle:'hero_idle.png', heroWalk:'hero_walk.png', heroJump:'hero_jump.png',
                 enIdle:'enemy_idle.png', enWalk:'enemy_walk.png', coin:'collectible_coin.png',
                 keepIdle:'keeper_idle.png', keepWalk:'keeper_walk.png',
-                bossIdle:'boss_6666_idle.png', bossWalk:'boss_6666_walk.png', bossJump:'boss_6666_jump.png' };
+                bossIdle:'boss_6666_idle.png', bossWalk:'boss_6666_walk.png', bossJump:'boss_6666_jump.png',
+                janeIdle:'boss_jane_idle.png', janeWalk:'boss_jane_walk.png' };
 let loaded = 0, total = Object.keys(FILES).length;
 for (const k in FILES) { IMG[k] = new Image(); IMG[k].onload = () => loaded++; IMG[k].src = 'assets/' + FILES[k]; }
 IMG.cageHippo = new Image(); IMG.cageHippo.src = 'assets/hero_idle.png';
@@ -574,6 +576,52 @@ function drawBoss() {
     ctx.beginPath(); ctx.arc(px, bs.y, 5, 0, 7); ctx.fill();
   }
 }
+function drawJane() {
+  const J = game.level.jane;
+  if (!J || !J.alive) return;
+  const px = J.x - camX;
+  const now = performance.now();
+  // beam + charge glow
+  const tummyX = px + J.w / 2, tummyY = J.y + J.h * 0.55;
+  if (J.beam === 'charge') {
+    const k = Math.min(1, J.beamT / 0.8);
+    ctx.fillStyle = 'rgba(255,140,195,' + (0.25 + 0.55 * k).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(tummyX, tummyY, 10 + 14 * k + Math.sin(now/50) * 3, 0, 7); ctx.fill();
+  } else if (J.beam === 'fire') {
+    const bx0 = J.dir > 0 ? J.x + J.w : 0;
+    const bx1 = J.dir > 0 ? game.level.w * T : J.x;
+    const fl = Math.floor(now / 50) % 2;
+    ctx.fillStyle = fl ? 'rgba(255,140,195,0.9)' : 'rgba(255,255,255,0.9)';
+    ctx.fillRect(bx0 - camX, tummyY - 14, bx1 - bx0, 28);
+    ctx.fillStyle = fl ? '#fff' : '#ff8cc3';
+    ctx.fillRect(bx0 - camX, tummyY - 5, bx1 - bx0, 10);
+    ctx.beginPath(); ctx.arc(tummyX, tummyY, 22 + Math.sin(now/40)*4, 0, 7); ctx.fill();
+  }
+  const dw = 105, dh = 100, dx = px + J.w/2 - dw/2, dy = J.y + J.h - dh + 2;
+  const flash = J.inv > 0 && Math.floor(now/80) % 2;
+  if (loaded === total && !flash) {
+    const flip = game.player.x < J.x;
+    if (Math.abs(J.vx) > 5) sheetFrame(IMG.janeWalk, Math.floor(J.t*8) % 6, 420, dx, dy, dw, dh, flip);
+    else sheetFrame(IMG.janeIdle, Math.floor(J.t*2) % 2, 420, dx, dy, dw, dh, flip);
+  }
+  // health pips
+  ctx.fillStyle = 'rgba(20,5,31,0.7)'; ctx.fillRect(cv.width/2 - 120, 44, 240, 22);
+  for (let i = 0; i < J.maxHp; i++) {
+    ctx.fillStyle = i < J.hp ? '#ff8cc3' : '#5a0e2e';
+    ctx.fillRect(cv.width/2 - 112 + i * 60, 48, 52, 14);
+  }
+  ctx.fillStyle = '#ffc72c'; ctx.font = 'bold 13px Courier New'; ctx.textAlign = 'center';
+  ctx.fillText('PLAIN JANE', cv.width/2, 40);
+  if (game.t < 3) {
+    ctx.fillStyle = 'rgba(20,5,31,0.6)'; ctx.fillRect(0, 180, cv.width, 130);
+    ctx.fillStyle = '#ff8cc3'; ctx.font = 'bold 44px Courier New';
+    ctx.fillText('PLAIN JANE', cv.width/2, 236);
+    ctx.fillStyle = '#c99df0'; ctx.font = 'bold 18px Courier New';
+    ctx.fillText('SHE HAS NOTHING. SHE WANTS YOUR EVERYTHING.', cv.width/2, 268);
+    ctx.fillText('JUMP THE BELLY BEAM — BUMP HER FOUR TIMES', cv.width/2, 292);
+  }
+  ctx.textAlign = 'left';
+}
 function drawPlayer() {
   const p = game.player;
   if (p.shield) {
@@ -707,6 +755,10 @@ const SFX = {
   bossshoot:      () => beep(300, 80, 0.25, 'sawtooth', 0.1),
   bosshop:        () => beep(90, 45, 0.3, 'sine', 0.14),
   bossstagger:    () => beep(600, 200, 0.1, 'triangle', 0.08),
+  janecharge:     () => beep(300, 1400, 0.75, 'sine', 0.07),
+  janebeam:       () => beep(1200, 900, 0.5, 'sawtooth', 0.09),
+  janehit:        () => { beep(140, 50, 0.3, 'sawtooth', 0.12); setTimeout(() => beep(600, 1000, 0.12), 110); },
+  janedie:        () => { [300, 240, 180, 120].forEach((f, i) => setTimeout(() => beep(f, f*0.6, 0.28, 'sawtooth', 0.11), i*150)); },
   shieldbreak:    () => beep(500, 100, 0.3, 'sawtooth', 0.1),
   'die:pit':  () => beep(400, 60, 0.5, 'sawtooth', 0.1),
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
@@ -860,6 +912,8 @@ function fxEvent(ev) {
   else if (ev === '1up') { fx.livesFlash = 1.2; fx.pop = { text: '50 PINS — EXTRA LIFE!', t: 1.4, color: '#8affc1' }; }
   else if (ev === 'bosshit') fx.pop = { text: 'BUMP! ' + (game.level.boss ? game.level.boss.hp : '') + ' TO GO', t: 0.9, color: '#ffc72c' };
   else if (ev === 'bossdie') { fx.flash = 0.5; fx.pop = { text: 'TIE CLUB RECLAIMED!', t: 2.2, color: '#8affc1' }; }
+  else if (ev === 'janehit') fx.pop = { text: 'BUMP! ' + (game.level.jane ? game.level.jane.hp : '') + ' TO GO', t: 0.9, color: '#ff8cc3' };
+  else if (ev === 'janedie') { fx.flash = 0.4; fx.pop = { text: 'JANE JAILED!', t: 2.0, color: '#ff8cc3' }; }
 }
 function drawDebug() {
   if (!window.DEBUG_BOXES) return;
@@ -1128,7 +1182,7 @@ function frame(now) {
   MUSIC.key = (game.levelNum - 1) % 4;
   musicUpdate(!game.gameOver);
   cam();
-  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawPlayer(); drawHUD(); drawDebug(); drawFx();
+  drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawJane(); drawPlayer(); drawHUD(); drawDebug(); drawFx();
   if (game.won) overlay(levelName() + ' CLEARED!', 'Score ' + game.score + ' — Freed ' + game.rescued + '/' + game.level.cages.length + ' — tap or press Enter for level ' + (game.levelNum + 1));
   else if (game.gameOver) {
     if (hs.mode === null) hsBegin();
