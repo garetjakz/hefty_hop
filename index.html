@@ -182,6 +182,10 @@ function hsLoad() {
 }
 function hsSave(t) { try { localStorage.setItem(HS_KEY, JSON.stringify(t)); } catch (e) {} }
 function hsBegin() {
+  try {   // game-over sting
+    [392, 311, 262, 196].forEach((f, i) => setTimeout(() => beep(f, f * 0.94, 0.32, 'square', 0.09), i * 210));
+    setTimeout(() => beep(98, 49, 0.8, 'sawtooth', 0.11), 880);
+  } catch (e) {}
   hs.mode = 'loading';
   hs.table = hsLoad(); hs.global = false;
   hs.letters = new Array(HS_LEN).fill(HS_BLANK); hs.slot = 0; hs.newIdx = -1;
@@ -764,14 +768,31 @@ const SFX = {
   'die:hits': () => beep(400, 60, 0.5, 'sawtooth', 0.1),
 };
 
-/* ---- chiptune music: live-synth 80s driver, no audio files ---------- */
-const MUSIC = { on: true, step: 0, nextT: 0, key: 0, noiseBuf: null, bus: null };
-const M_BPM = 132, M_16TH = 60 / M_BPM / 4;
+/* ---- chiptune music: per-turf songs, boss tracks, live-synth ---------- */
+const MUSIC = { on: true, step: 0, nextT: 0, key: 0, song: 'ember', spb: 60/132/4, noiseBuf: null, bus: null };
 const M_ROOTS  = [60, 55, 57, 53];                    // C  G  Am F
-const M_CHORDS = [[0,4,7], [0,4,7], [0,3,7], [0,4,7]]; // triad shapes per bar
-const M_KEYS   = [0, 2, -3, 5];                        // transpose per turf
-const M_LEAD_A = [12,null,7,null,16,null,12,null,7,null,16,null,12,14,16,null];
-const M_LEAD_B = [19,null,16,null,12,null,16,null,19,17,16,14,12,null,7,null];
+const M_CHORDS = [[0,4,7], [0,4,7], [0,3,7], [0,4,7]];
+const M_KEYS   = [0, 2, -3, 5];
+const SONGS = {
+  ember: { bpm: 132, bass: 'drive', arp: 'triangle', lead: 'square', dur: 0.12,
+    A: [12,null,7,null,16,null,12,null,7,null,16,null,12,14,16,null],
+    B: [19,null,16,null,12,null,16,null,19,17,16,14,12,null,7,null] },
+  heart: { bpm: 138, bass: 'bounce', arp: 'sine', lead: 'square', dur: 0.14,
+    A: [null,12,null,12,null,16,14,12,null,9,null,9,7,9,12,null],
+    B: [null,12,null,14,16,null,16,null,17,16,14,12,14,null,null,null] },
+  clock: { bpm: 126, bass: 'tick', arp: 'square', lead: 'triangle', dur: 0.07,
+    A: [12,null,null,12,null,null,12,null,10,null,null,10,null,null,7,null],
+    B: [12,null,13,null,12,null,10,null,8,null,7,null,3,null,null,null] },
+  patch: { bpm: 128, bass: 'wonk', arp: 'triangle', lead: 'square', dur: 0.11,
+    A: [null,7,null,null,8,null,null,7,null,null,14,null,13,null,12,null],
+    B: [7,null,null,10,null,12,null,null,15,14,13,12,null,7,null,null] },
+  jane: { bpm: 116, bass: 'tick', arp: 'square', lead: 'triangle', dur: 0.09, roots: [57,57,53,55],
+    A: [0,null,null,null,3,null,null,null,0,null,null,3,null,2,null,null],
+    B: [0,null,null,null,5,null,3,null,2,null,0,null,null,null,null,null] },
+  boss: { bpm: 150, bass: 'relent', arp: 'sawtooth', lead: 'sawtooth', dur: 0.10, roots: [57,57,55,56],
+    A: [12,null,12,null,15,null,12,null,null,17,15,12,null,null,null,null],
+    B: [12,null,12,null,15,null,17,null,18,null,17,15,12,null,null,null] },
+};
 function mFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
 function mBus() {
   if (!MUSIC.bus) {
@@ -812,7 +833,7 @@ function mKick(t) {
   g.gain.linearRampToValueAtTime(0.4, t + 0.005);
   g.gain.exponentialRampToValueAtTime(0.002, t + 0.11);
   g.gain.linearRampToValueAtTime(0, t + 0.13);
-  o.connect(g); g.connect(mBus()); o.start(t); o.stop(t + 0.14);
+  o.connect(g); o.connect(g); g.connect(mBus()); o.start(t); o.stop(t + 0.14);
 }
 function mNoise(t, dur, vol, hp) {
   const a = ac(), s = a.createBufferSource(); s.buffer = MUSIC.noiseBuf;
@@ -825,33 +846,48 @@ function mNoise(t, dur, vol, hp) {
   s.connect(fl); fl.connect(g); g.connect(mBus()); s.start(t); s.stop(t + dur + 0.02);
 }
 function mStep(step, t) {
-  const bar = (step >> 4) % 4, s16 = step % 16, key = M_KEYS[MUSIC.key];
-  const root = M_ROOTS[bar] + key, chord = M_CHORDS[bar];
-  if (s16 % 4 === 0) mKick(t);                                   // four on the floor
-  if (s16 === 4 || s16 === 12) mNoise(t, 0.09, 0.22, 1800);      // snare
-  if (s16 % 4 === 2) mNoise(t, 0.055, 0.055, 4500);              // offbeat hat
-  if (s16 % 2 === 0)                                             // driving 8th bass
-    mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'sawtooth', 0.16, 900);
-  if (s16 % 2 === 1)                                             // arp sparkle
-    mTone(t, mFreq(root + chord[step % 3] + 12), 0.06, 'triangle', 0.05);
-  const off = ((bar % 2) ? M_LEAD_B : M_LEAD_A)[s16];            // lead hook
-  if (off !== null) mTone(t, mFreq(root + off + 12), 0.12, 'square', 0.07, 2800);
+  const S = SONGS[MUSIC.song] || SONGS.ember;
+  const bar = (step >> 4) % 4, s16 = step % 16;
+  const key = S.roots ? 0 : M_KEYS[MUSIC.key];
+  const roots = S.roots || M_ROOTS;
+  const root = roots[bar] + key, chord = M_CHORDS[bar];
+  if (s16 % 4 === 0) mKick(t);
+  if (s16 === 4 || s16 === 12) mNoise(t, 0.09, 0.22, 1800);
+  if (s16 % 4 === 2) mNoise(t, 0.055, 0.055, 4500);
+  // bass styles
+  const bf = mFreq(root - 12);
+  if (S.bass === 'drive'  && s16 % 2 === 0) mTone(t, mFreq(root - 12 + (s16 === 14 ? 12 : 0)), 0.10, 'sawtooth', 0.16, 900);
+  if (S.bass === 'bounce' && (s16 % 4 === 0 || s16 % 4 === 3)) mTone(t, bf, 0.09, 'sawtooth', 0.16, 900);
+  if (S.bass === 'tick'   && s16 % 4 === 0) mTone(t, bf, 0.16, 'sawtooth', 0.15, 700);
+  if (S.bass === 'wonk'   && (s16 === 0 || s16 === 3 || s16 === 6 || s16 === 10 || s16 === 13)) mTone(t, bf, 0.09, 'sawtooth', 0.17, 900);
+  if (S.bass === 'relent' && s16 % 1 === 0) mTone(t, mFreq(root - 12), 0.06, 'sawtooth', s16 % 4 === 0 ? 0.17 : 0.11, 1000);
+  // arp sparkle
+  if (s16 % 2 === 1) mTone(t, mFreq(root + chord[step % 3] + 12), 0.06, S.arp, 0.045);
+  // lead
+  const off = ((bar % 2) ? S.B : S.A)[s16];
+  if (off !== null && off !== undefined) mTone(t, mFreq(root + off + 12), S.dur, S.lead, 0.065, 2800);
+}
+function setSong(name) {
+  if (MUSIC.song === name) return;
+  MUSIC.song = name;
+  const S = SONGS[name] || SONGS.ember;
+  MUSIC.spb = 60 / S.bpm / 4;
+  MUSIC.step = 0;
+  if (AC) MUSIC.nextT = AC.currentTime + 0.08;
 }
 function musicUpdate(active) {
   try {
     if (!MUSIC.on || !active || !AC || AC.state !== 'running') return;
     mBus();
     const now = AC.currentTime;
-    // if we fell behind, skip forward — a note scheduled in the past has its
-    // attack ramp clamped away by WebAudio and lands as a click
     if (MUSIC.nextT < now + 0.015) {
-      const behind = Math.ceil((now + 0.05 - MUSIC.nextT) / M_16TH);
-      if (behind > 0) { MUSIC.nextT += behind * M_16TH; MUSIC.step = (MUSIC.step + behind) % 64; }
+      const behind = Math.ceil((now + 0.05 - MUSIC.nextT) / MUSIC.spb);
+      if (behind > 0) { MUSIC.nextT += behind * MUSIC.spb; MUSIC.step = (MUSIC.step + behind) % 64; }
     }
     while (MUSIC.nextT < now + 0.3) {
       mStep(MUSIC.step, MUSIC.nextT);
       MUSIC.step = (MUSIC.step + 1) % 64;
-      MUSIC.nextT += M_16TH;
+      MUSIC.nextT += MUSIC.spb;
     }
   } catch (e) {}
 }
@@ -1165,7 +1201,7 @@ const DT = 1/60;
 function frame(now) {
   if (appMode === 'title') {
     const dt = Math.min(0.1, (now - last)/1000); last = now;
-    MUSIC.key = 0; musicUpdate(true);
+    MUSIC.key = 0; setSong('ember'); musicUpdate(true);
     drawTitle(dt);
     requestAnimationFrame(frame);
     return;
@@ -1180,6 +1216,9 @@ function frame(now) {
     acc -= DT;
   }
   MUSIC.key = (game.levelNum - 1) % 4;
+  setSong(game.levelNum % 21 === 0 ? 'boss'
+        : game.levelNum % 21 === 12 ? 'jane'
+        : ['ember', 'heart', 'clock', 'patch'][(game.levelNum - 1) % 4]);
   musicUpdate(!game.gameOver);
   cam();
   drawBG(); drawTiles(); drawCages(); drawExit(); drawPins(); drawPowerups(); drawHazards(); drawKeepers(); drawEnemies(); drawShots(); drawBoss(); drawJane(); drawPlayer(); drawHUD(); drawDebug(); drawFx();
