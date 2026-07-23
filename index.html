@@ -645,7 +645,7 @@ function drawPlayer() {
     sheetFrame(IMG.heroJump, 0, 420, dx, dy, dw, dh, p.facing < 0);
     ctx.restore();
   } else if (Math.abs(p.vx) > 20) {
-    const wf = Math.floor(p.animT*5) % 4;                 // slower, readable cadence
+    const wf = Math.floor(p.animT*4) % 4;                 // slower, readable cadence
     const bob = [1, -2, 1, -2][wf];                       // dip on plant, lift on swing
     sheetFrame(IMG.heroWalk, wf, 420, dx, dy + bob, dw, dh, p.facing < 0);
   } else {
@@ -1145,9 +1145,9 @@ function drawTitle(dt) {
 
     // sprites parade
     if (loaded === total) {
-      const wf = Math.floor(performance.now()/110) % 6;
-      sheetFrame(IMG.heroWalk, wf, 420, cv.width/2 - 250, 150, 168, 160, false);
-      sheetFrame(IMG.enWalk, wf, 420, cv.width/2 + 90, 158, 168, 160, true);
+      const t110 = performance.now()/140;
+      sheetFrame(IMG.heroWalk, Math.floor(t110) % 4, 420, cv.width/2 - 250, 150, 168, 160, false);
+      sheetFrame(IMG.enWalk, Math.floor(performance.now()/110) % 6, 420, cv.width/2 + 90, 158, 168, 160, true);
       const cf = Math.floor(performance.now()/110) % 4;
       ctx.drawImage(IMG.coin, cf*200, 0, 200, 200, cv.width/2 - 22, 210, 44, 44);
     }
