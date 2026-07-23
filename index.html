@@ -645,7 +645,9 @@ function drawPlayer() {
     sheetFrame(IMG.heroJump, 0, 420, dx, dy, dw, dh, p.facing < 0);
     ctx.restore();
   } else if (Math.abs(p.vx) > 20) {
-    sheetFrame(IMG.heroWalk, Math.floor(p.animT*8) % 4, 420, dx, dy, dw, dh, p.facing < 0);
+    const wf = Math.floor(p.animT*5) % 4;                 // slower, readable cadence
+    const bob = [1, -2, 1, -2][wf];                       // dip on plant, lift on swing
+    sheetFrame(IMG.heroWalk, wf, 420, dx, dy + bob, dw, dh, p.facing < 0);
   } else {
     sheetFrame(IMG.heroIdle, Math.floor(p.animT*2) % 2, 420, dx, dy, dw, dh, p.facing < 0);
   }
