@@ -645,7 +645,7 @@ function drawPlayer() {
     sheetFrame(IMG.heroJump, 0, 420, dx, dy, dw, dh, p.facing < 0);
     ctx.restore();
   } else if (Math.abs(p.vx) > 20) {
-    sheetFrame(IMG.heroWalk, Math.floor(p.animT*8) % 6, 420, dx, dy, dw, dh, p.facing < 0);
+    sheetFrame(IMG.heroWalk, Math.floor(p.animT*8) % 4, 420, dx, dy, dw, dh, p.facing < 0);
   } else {
     sheetFrame(IMG.heroIdle, Math.floor(p.animT*2) % 2, 420, dx, dy, dw, dh, p.facing < 0);
   }
